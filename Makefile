@@ -4,7 +4,7 @@ CFLAGS := -O3 -Wall -std=c++17 -I./shaders/SharedTypes.h -I./include -I./metal-c
 
 LDFLAGS := -framework Metal -framework Foundation -framework Cocoa -framework CoreGraphics -framework MetalKit
 
-OBJECTS := ApplicationDelegate.o FloorPlane.o Renderer.o TestScene.o ViewDelegate.o main.o
+OBJECTS := ApplicationDelegate.o Cube.o FloorPlane.o Renderer.o TestScene.o ViewDelegate.o main.o
 
 all: main
 

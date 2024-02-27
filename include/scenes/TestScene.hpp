@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sceneobjects/Cube.hpp"
 #include "sceneobjects/FloorPlane.hpp"
 #include "Scene.hpp"
 
@@ -13,5 +14,6 @@ class TestScene: public Scene {
         virtual std::vector<Material> getMaterials() override;
         virtual void update(MTL::CommandBuffer *pCmd) override;
     private:
+        Cube *_pCube;
         FloorPlane *_pFloorPlane;
 };

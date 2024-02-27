@@ -6,9 +6,9 @@ This project is written in C++ using metal-cpp bindings for Metal and AppKit.
 
 ## Current State
 
-As of Sunday February 25 2024, the project creates a 1920x1080 window and renders a pink ground plane. Only primary rays are being cast, with no lighting calculations; intersections are colored by the geometry's defined color and darkened based on distance from the camera.
+As of Monday February 26 2024, the project creates a 1920x1080 window and renders an indigo cube atop a pink ground plane. The background is gray on the left and white on the right, casting light onto the scene. Rays are path traced with 16 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
 
-![What the project currently looks like](images/current_state_1.png)
+![What the project currently looks like](images/current_state_2.png)
 
 ## Prerequisites
 

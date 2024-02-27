@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Metal.hpp"
+#include "../shaders/SharedTypes.h"
 
 class SceneObject {
     public:

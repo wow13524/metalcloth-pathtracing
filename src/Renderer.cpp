@@ -11,19 +11,34 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     MTL::FunctionConstantValues *pFunctionConstants = MTL::FunctionConstantValues::alloc()->init();
     pFunctionConstants->setConstantValue(&width, MTL::DataTypeUInt, NS::UInteger(0));
     pFunctionConstants->setConstantValue(&height, MTL::DataTypeUInt, NS::UInteger(1));
-    pFunctionConstants->setConstantValue(&fovh, MTL::DataTypeFloat, NS::UInteger(2));
-    pFunctionConstants->setConstantValue(&fovv, MTL::DataTypeFloat, NS::UInteger(3));
+    pFunctionConstants->setConstantValue(&SPP, MTL::DataTypeUInt, NS::UInteger(2));
+    pFunctionConstants->setConstantValue(&fovh, MTL::DataTypeFloat, NS::UInteger(3));
+    pFunctionConstants->setConstantValue(&fovv, MTL::DataTypeFloat, NS::UInteger(4));
 
     MTL::Library *pLibrary = this->_pDevice->newLibrary(NS::String::string("Shaders.metallib", NS::UTF8StringEncoding), &err);
-    MTL::Function *pRenderFunction = pLibrary->newFunction(NS::String::string("renderMain", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pResetFunction = pLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
+    MTL::Function *pRayFunction = pLibrary->newFunction(NS::String::string("generateRayKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pSceneFunction = pLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
     MTL::Function *pVertexFunction = pLibrary->newFunction(NS::String::string("vertexMain", NS::UTF8StringEncoding));
     MTL::Function *pFragmentFunction = pLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
 
-    this->_pComputePipelineState = this->_pDevice->newComputePipelineState(pRenderFunction, &err);
-    unsigned int groupWidth = this->_pComputePipelineState->threadExecutionWidth();
-    unsigned int groupHeight = this->_pComputePipelineState->maxTotalThreadsPerThreadgroup() / groupWidth;
-    this->_threadgroupsPerGrid = MTL::Size::Make((width + groupWidth - 1) / groupWidth, (height + groupHeight - 1) / groupHeight, 1);
-    this->_threadsPerThreadgroup = MTL::Size::Make(groupWidth, groupHeight, 1);
+    this->_pComputeResetPipelineState = this->_pDevice->newComputePipelineState(pResetFunction, &err);
+    unsigned int resetGroupWidth = this->_pComputeResetPipelineState->threadExecutionWidth();
+    unsigned int resetGroupHeight = this->_pComputeResetPipelineState->maxTotalThreadsPerThreadgroup() / resetGroupWidth;
+    this->_resetTPG = MTL::Size::Make((width + resetGroupWidth - 1) / resetGroupWidth, (height + resetGroupHeight - 1) / resetGroupHeight, 1);
+    this->_resetTPT = MTL::Size::Make(resetGroupWidth, resetGroupHeight, 1);
+
+    this->_pComputeRayPipelineState = this->_pDevice->newComputePipelineState(pRayFunction, &err);
+    unsigned int rayGroupWidth = this->_pComputeRayPipelineState->threadExecutionWidth();
+    unsigned int rayGroupHeight = this->_pComputeRayPipelineState->maxTotalThreadsPerThreadgroup() / rayGroupWidth;
+    this->_rayTPG = MTL::Size::Make((width + rayGroupWidth - 1) / rayGroupWidth, (height + rayGroupHeight - 1) / rayGroupHeight, 1);
+    this->_rayTPT = MTL::Size::Make(rayGroupWidth, rayGroupHeight, 1);
+
+    this->_pComputeScenePipelineState = this->_pDevice->newComputePipelineState(pSceneFunction, &err);
+    unsigned int sceneGroupWidth = this->_pComputeScenePipelineState->threadExecutionWidth();
+    unsigned int sceneGroupHeight = this->_pComputeScenePipelineState->maxTotalThreadsPerThreadgroup() / sceneGroupWidth;
+    this->_sceneTPG = MTL::Size::Make((width + sceneGroupWidth - 1) / sceneGroupWidth, (height + sceneGroupHeight - 1) / sceneGroupHeight, 1);
+    this->_sceneTPT = MTL::Size::Make(sceneGroupWidth, sceneGroupHeight, 1);
 
     MTL::RenderPipelineDescriptor *pRenderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
     pRenderPipelineDescriptor->setVertexFunction(pVertexFunction);
@@ -31,7 +46,6 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     pRenderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(MTL::PixelFormatBGRA8Unorm_sRGB);
 
     this->_pRenderPipelineState = this->_pDevice->newRenderPipelineState(pRenderPipelineDescriptor, &err);
-    this->_pCameraBuffer = this->_pDevice->newBuffer(sizeof(Camera), MTL::ResourceStorageModeManaged);
     this->_pOutputTexture = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
         MTL::PixelFormatRGBA32Float,
         width,
@@ -39,10 +53,14 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
         false
     ));
     
+    this->_pRayBuffer = this->_pDevice->newBuffer(width * height * sizeof(Ray), MTL::ResourceStorageModePrivate);
+    this->_pCameraBuffer = this->_pDevice->newBuffer(sizeof(Camera), MTL::ResourceStorageModeManaged);
+    
     this->loadScene(new TestScene(this->_pDevice));
 
     pLibrary->release();
-    pRenderFunction->release();
+    pRayFunction->release();
+    pSceneFunction->release();
     pVertexFunction->release();
     pFragmentFunction->release();
     pRenderPipelineDescriptor->release();
@@ -51,12 +69,15 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
 Renderer::~Renderer() {
     this->_pDevice->release();
     this->_pCommandQueue->release();
-    this->_pComputePipelineState->release();
+    this->_pComputeResetPipelineState->release();
+    this->_pComputeRayPipelineState->release();
+    this->_pComputeScenePipelineState->release();
     this->_pRenderPipelineState->release();
     this->_pOutputTexture->release();
-    this->_pCameraBuffer->release();
+    this->_pRayBuffer->release();
     this->_pGeometryMaterialBuffer->release();
     this->_pMaterialBuffer->release();
+    this->_pCameraBuffer->release();
     this->_pScratchBuffer->release();
     this->_pAccelerationStructure->release();
     delete this->_pScene;
@@ -78,21 +99,23 @@ void Renderer::loadScene(Scene *pScene) {
     std::vector<Material> materials = this->_pScene->getMaterials();
     MTL::AccelerationStructureSizes sizes = this->_pDevice->accelerationStructureSizes(this->_pScene->getDescriptor());
 
-    this->_pGeometryMaterialBuffer = this->_pDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModeManaged);
-    this->_pMaterialBuffer = this->_pDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModeManaged);
+    this->_pGeometryMaterialBuffer = this->_pDevice->newBuffer(geometryMaterials.size() * sizeof(uint16_t), MTL::ResourceStorageModeManaged);
+    this->_pMaterialBuffer = this->_pDevice->newBuffer(materials.size() * sizeof(Material), MTL::ResourceStorageModeManaged);
     this->_pScratchBuffer = this->_pDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
     this->_pAccelerationStructure = this->_pDevice->newAccelerationStructure(sizes.accelerationStructureSize);
 
-    memcpy(this->_pCameraBuffer->contents(), &this->_camera, sizeof(Camera));
-    memcpy(this->_pGeometryMaterialBuffer->contents(), geometryMaterials.data(), geometryMaterials.size() * sizeof(uint16_t));
-    memcpy(this->_pMaterialBuffer->contents(), materials.data(), materials.size() * sizeof(Material));
-    this->_pCameraBuffer->didModifyRange(NS::Range::Make(0, sizeof(Camera)));
-    this->_pGeometryMaterialBuffer->didModifyRange(NS::Range::Make(0, geometryMaterials.size() * sizeof(uint16_t)));
-    this->_pMaterialBuffer->didModifyRange(NS::Range::Make(0, materials.size() * sizeof(Material)));
+    memcpy(this->_pCameraBuffer->contents(), &this->_camera, this->_pCameraBuffer->length());
+    memcpy(this->_pGeometryMaterialBuffer->contents(), geometryMaterials.data(), this->_pGeometryMaterialBuffer->length());
+    memcpy(this->_pMaterialBuffer->contents(), materials.data(), this->_pMaterialBuffer->length());
+    this->_pCameraBuffer->didModifyRange(NS::Range::Make(0, this->_pCameraBuffer->length()));
+    this->_pGeometryMaterialBuffer->didModifyRange(NS::Range::Make(0, this->_pGeometryMaterialBuffer->length()));
+    this->_pMaterialBuffer->didModifyRange(NS::Range::Make(0, this->_pMaterialBuffer->length()));
 }
 
 void Renderer::draw(MTK::View *pView) {
-    auto start = std::chrono::system_clock::now();
+    auto thisFrame = std::chrono::system_clock::now();
+    printf("FPS: %f\n", 1e6 / (thisFrame - this->_lastFrame).count());
+    this->_lastFrame = thisFrame;
 
     NS::AutoreleasePool* pPool = NS::AutoreleasePool::alloc()->init();
 
@@ -110,15 +133,30 @@ void Renderer::draw(MTK::View *pView) {
     );
     pASEnc->endEncoding();
 
-    //render output to texture
+    //reset output texture
     MTL::ComputeCommandEncoder *pCEnc = pCmd->computeCommandEncoder();
-    pCEnc->setComputePipelineState(this->_pComputePipelineState);
-    pCEnc->setAccelerationStructure(this->_pAccelerationStructure, 0);
-    pCEnc->setBuffer(this->_pCameraBuffer, 0, 1);
-    pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 2);
-    pCEnc->setBuffer(this->_pMaterialBuffer, 0, 3);
+    pCEnc->setAccelerationStructure(this->_pAccelerationStructure, 1);
+    pCEnc->setBuffer(this->_pRayBuffer, 0, 2);
+    pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 3);
+    pCEnc->setBuffer(this->_pMaterialBuffer, 0, 4);
+    pCEnc->setBuffer(this->_pCameraBuffer, 0, 5);
     pCEnc->setTexture(this->_pOutputTexture, 0);
-    pCEnc->dispatchThreadgroups(this->_threadgroupsPerGrid, this->_threadsPerThreadgroup);
+    pCEnc->setComputePipelineState(this->_pComputeResetPipelineState);
+    pCEnc->dispatchThreadgroups(this->_resetTPG, this->_resetTPT);
+    //generate primary rays
+    uint32_t r;
+    for (int i = 0; i < SPP; i++) {
+        r = rand();
+        pCEnc->setBytes(&r, sizeof(uint32_t), 0);
+        pCEnc->setComputePipelineState(this->_pComputeRayPipelineState);
+        pCEnc->dispatchThreadgroups(this->_rayTPG, this->_rayTPT);
+        //sample scene
+        pCEnc->setComputePipelineState(this->_pComputeScenePipelineState);
+        for (int j = 0; j < BOUNCES; j++) {
+            pCEnc->setBytes(&r, sizeof(uint32_t), 0);
+            pCEnc->dispatchThreadgroups(this->_sceneTPG, this->_sceneTPT);
+        }
+    }
     pCEnc->endEncoding();
 
     //draw texture to screen
@@ -134,7 +172,4 @@ void Renderer::draw(MTK::View *pView) {
     pCmd->commit();
 
     pPool->release();
-
-    auto stop = std::chrono::system_clock::now();
-    printf("FPS: %f\n", 1e6 / (stop - start).count());
 }
