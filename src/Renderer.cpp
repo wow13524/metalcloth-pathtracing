@@ -58,6 +58,7 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     
     this->loadScene(new TestScene(this->_pDevice));
 
+    pFunctionConstants->release();
     pLibrary->release();
     pRayFunction->release();
     pSceneFunction->release();
@@ -114,14 +115,20 @@ void Renderer::loadScene(Scene *pScene) {
 
 void Renderer::draw(MTK::View *pView) {
     auto thisFrame = std::chrono::system_clock::now();
-    printf("FPS: %f\n", 1e6 / (thisFrame - this->_lastFrame).count());
+    float dt = (thisFrame - this->_lastFrame).count() / 1e6;
+    printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
     NS::AutoreleasePool* pPool = NS::AutoreleasePool::alloc()->init();
 
+    //Simulate scene and update geometry
     MTL::CommandBuffer *pCmd = this->_pCommandQueue->commandBuffer();
+    this->_pScene->update(pCmd, this->_pAccelerationStructure, dt);
+    pCmd->commit();
+    pCmd->waitUntilCompleted();
+    this->_pScene->updateGeometry();
 
-    this->_pScene->update(pCmd);
+    pCmd = this->_pCommandQueue->commandBuffer();
 
     //rebuild acceleration structure
     MTL::AccelerationStructureCommandEncoder *pASEnc = pCmd->accelerationStructureCommandEncoder();

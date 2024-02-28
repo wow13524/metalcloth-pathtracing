@@ -1,17 +1,23 @@
 #pragma once
 
 #include "Metal.hpp"
-#include "../shaders/SharedTypes.h"
+#include "SceneObject.hpp"
+#include "SharedTypes.h"
 
 class Scene {
     public:
-        virtual ~Scene() = default;
+        virtual ~Scene();
 
         inline MTL::AccelerationStructureDescriptor* getDescriptor() {return this->_pDescriptor;};
         virtual Camera getInitialCamera() = 0;
         virtual std::vector<uint16_t> getGeometryMaterials() = 0;
         virtual std::vector<Material> getMaterials() = 0;
-        virtual void update(MTL::CommandBuffer *pCmd) = 0;
+        void update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt);
+        void updateGeometry();
     protected:
         MTL::PrimitiveAccelerationStructureDescriptor *_pDescriptor;
+
+        void addObject(SceneObject *pSceneObject);
+    private:
+        std::vector<SceneObject*> _sceneObjects; 
 };

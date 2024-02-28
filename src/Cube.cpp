@@ -16,7 +16,7 @@ const uint32_t indices[36] = {
 };
 
 const PrimitiveData primitiveData[12] = {
-    PrimitiveData{{0, 0, 0}, {0, -1, 0}, {0, -1, 0}},
+    PrimitiveData{{0, -1, 0}, {0, -1, 0}, {0, -1, 0}},
     PrimitiveData{{0, -1, 0}, {0,- 1, 0}, {0, -1, 0}},
     PrimitiveData{{-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}},
     PrimitiveData{{-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0}},
@@ -67,8 +67,4 @@ Cube::Cube(MTL::Device *pDevice, float size) {
 
 Cube::~Cube() {
     this->_pTriangleDescriptor->release();
-}
-
-void Cube::update() {
-
 }

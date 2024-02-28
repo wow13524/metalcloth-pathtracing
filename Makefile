@@ -1,20 +1,22 @@
 CC := clang++
 
-CFLAGS := -O3 -Wall -std=c++17 -I./shaders/SharedTypes.h -I./include -I./metal-cpp -I./metal-cpp-extensions -fno-objc-arc
+CFLAGS := -O3 -Wall -std=c++17 -I./shaders -I./include -I./metal-cpp -I./metal-cpp-extensions -fno-objc-arc
 
 LDFLAGS := -framework Metal -framework Foundation -framework Cocoa -framework CoreGraphics -framework MetalKit
 
-OBJECTS := ApplicationDelegate.o Cube.o FloorPlane.o Renderer.o TestScene.o ViewDelegate.o main.o
+OBJECTS := ApplicationDelegate.o Cloth.o Cube.o FloorPlane.o Renderer.o Scene.o TestScene.o ViewDelegate.o main.o
+
+SHADERS := Simulation.metallib Shaders.metallib
 
 all: main
 
-main: Shaders.metallib $(OBJECTS)
+main: $(SHADERS) $(OBJECTS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJECTS) -o metalcloth
 
 %.air: shaders/%.metal
 	xcrun -sdk macosx metal -O3 -o $@ -c $<
 
-Shaders.metallib: Shaders.air
+%.metallib: %.air
 	xcrun -sdk macosx metallib -o $@ $^
 
 %.o: src/%.cpp

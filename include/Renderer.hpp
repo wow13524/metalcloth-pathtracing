@@ -33,5 +33,5 @@ class Renderer {
         Camera _camera;
         Scene *_pScene = nullptr;
         
-        std::chrono::system_clock::time_point _lastFrame;
+        std::chrono::system_clock::time_point _lastFrame = std::chrono::system_clock::now();
 };

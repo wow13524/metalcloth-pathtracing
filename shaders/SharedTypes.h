@@ -2,6 +2,8 @@
 
 #include <simd/simd.h>
 
+#define EPSILON 0.0001f
+
 typedef struct pfloat3 {
     float x, y, z;
 } pfloat3;
@@ -15,6 +17,11 @@ typedef struct Material {
     simd::float3 color;
     float roughness;
 } Material;
+
+typedef struct Particle {
+    bool alive;
+    simd::float3 position, velocity, acceleration;
+} Particle;
 
 typedef struct PrimitiveData {
     simd::float3 v0Normal, v1Normal, v2Normal;

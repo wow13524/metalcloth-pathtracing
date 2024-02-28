@@ -2,8 +2,6 @@
 #include <metal_stdlib>
 #include "SharedTypes.h"
 
-#define EPSILON 0.0001f
-
 using namespace metal;
 
 constant uint width     [[function_constant(0)]];
@@ -120,7 +118,10 @@ kernel void sampleSceneKernel(
     Material mat = materials[geometryMaterials[intersection.geometry_id]];
     PrimitiveData data = *(const device PrimitiveData*)intersection.primitive_data;
 
-    float4 ggxSample = importanceSampleGgxVndf(position, rand, data.v0Normal, ray.direction, mat.roughness);
+    float2 bCoords = intersection.triangle_barycentric_coord;
+    float3 surfaceNormal = bCoords.x * data.v0Normal + bCoords.y * data.v1Normal + (1 - bCoords.x - bCoords.y) * data.v2Normal;
+
+    float4 ggxSample = importanceSampleGgxVndf(position, rand, surfaceNormal, ray.direction, mat.roughness);
 
     ray.alive = hit;
     ray.color *= hit ? mat.color : ray.direction.x > 0 ? 1 : 0.25;

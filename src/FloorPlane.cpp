@@ -44,7 +44,3 @@ FloorPlane::FloorPlane(MTL::Device *pDevice, float size) {
 FloorPlane::~FloorPlane() {
     this->_pTriangleDescriptor->release();
 }
-
-void FloorPlane::update() {
-
-}
