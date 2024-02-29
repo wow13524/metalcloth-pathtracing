@@ -159,15 +159,6 @@ void Renderer::draw(MTK::View *pView) {
     printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
-    NS::AutoreleasePool* pPool = NS::AutoreleasePool::alloc()->init();
-
-    //Simulate scene and update geometry
-    MTL::CommandBuffer *pCmd = this->_pCommandQueue->commandBuffer();
-    this->_pScene->update(pCmd, this->_pAccelerationStructure, dt);
-    pCmd->commit();
-    pCmd->waitUntilCompleted();
-    this->_pScene->updateGeometry();
-
     simd::float4x4 viewMat = simd_inverse(simd::float4x4{
         simd::float4{this->_camera.right[0], this->_camera.right[1], this->_camera.right[2], 0},
         simd::float4{this->_camera.up[0], this->_camera.up[1], this->_camera.up[2], 0},
@@ -176,6 +167,15 @@ void Renderer::draw(MTK::View *pView) {
     });
     simd::float4x4 pvMat = this->_projectionMatrix * viewMat;
     simd::float4x4 pvMatInv = simd_inverse(pvMat);
+
+    NS::AutoreleasePool* pPool = NS::AutoreleasePool::alloc()->init();
+
+    //Simulate scene and update geometry
+    MTL::CommandBuffer *pCmd = this->_pCommandQueue->commandBuffer();
+    this->_pScene->update(pCmd, this->_pAccelerationStructure, dt);
+    pCmd->commit();
+    pCmd->waitUntilCompleted();
+    this->_pScene->updateGeometry();
 
     pCmd = this->_pCommandQueue->commandBuffer();
 

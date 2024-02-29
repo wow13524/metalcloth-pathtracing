@@ -5,7 +5,7 @@
 #include "scenes/TestScene.hpp"
 
 constexpr uint32_t BOUNCES = 8;
-constexpr uint32_t SPP = 16;
+constexpr uint32_t SPP = 1;
 constexpr float FOV = 90.0f * M_PI / 360;
 
 class SVGFDenoiserAdapter;

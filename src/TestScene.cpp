@@ -5,7 +5,7 @@ const uint16_t geoMats[3] = {
 };
 
 const Material mats[3] = {
-    Material{.color = {0.5f, 1.0f, 0.5f}, .roughness = 0.5},
+    Material{.color = {0.5f, 1.0f, 0.5f}, .roughness = 1},
     Material{.color = {0.5f, 0.5f, 1.0f}, .roughness = 0.25},
     Material{.color = {1.0f, 0.5f, 0.5f}, .roughness = 0.05}
 };

@@ -15,6 +15,7 @@ metalcloth
 *.slo
 *.lo
 *.o
+*.mo
 *.obj
 
 # Precompiled Headers

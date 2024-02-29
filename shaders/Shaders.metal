@@ -106,7 +106,7 @@ kernel void sampleSceneKernel(
     constant uint16_t *geometryMaterials                                [[buffer(3)]],
     constant Material *materials                                        [[buffer(4)]],
     texture2d<float, access::write> depthNormal                         [[texture(0)]],
-    texture2d<float, access::write> motion                              [[texture(1)]],
+    texture2d<float, access::read_write> motion                         [[texture(1)]],
     texture2d<float, access::read_write> output                         [[texture(2)]]
 ) {
     if (position.x >= width || position.y >= height) return;
@@ -131,8 +131,11 @@ kernel void sampleSceneKernel(
     float4 ggxSample = importanceSampleGgxVndf(position, rand, surfaceNormal, ray.direction, mat.roughness);
 
     if (ray.state == RAY_PRIMARY) {
-        depthNormal.write(float4(1 - 1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : -ray.direction), position);
-        motion.write(length_squared(dUv) > 0 ? float4(dUv, 0, 1) : 1, position);
+        depthNormal.write(float4(1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : -ray.direction), position);
+        motion.write(float4(dUv, 0, 1), position);
+        if (length(dUv) == 0 && randUnif(position, rand) < 0.1) {
+            motion.write(1, position);
+        }
     }
 
     ray.state = hit ? RAY_ALIVE : RAY_DEAD;

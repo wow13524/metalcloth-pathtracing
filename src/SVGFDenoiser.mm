@@ -12,7 +12,7 @@ SVGFDenoiser* SVGFDenoiser::alloc() {
 
 SVGFDenoiser* SVGFDenoiser::init(MTL::Device *pDevice) {
     MPSSVGFDenoiser* pDenoiser = [(id)this->_pDenoiser initWithDevice:(id)pDevice];
-    pDenoiser.bilateralFilterIterations = 5;
+    pDenoiser.bilateralFilterIterations = 3;
     return this;
 }
 
