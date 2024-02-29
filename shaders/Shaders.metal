@@ -4,11 +4,11 @@
 
 using namespace metal;
 
-constant uint width     [[function_constant(0)]];
-constant uint height    [[function_constant(1)]];
-constant uint spp       [[function_constant(2)]];
-constant float fovh     [[function_constant(3)]];
-constant float fovv     [[function_constant(4)]];
+constant uint width         [[function_constant(0)]];
+constant uint height        [[function_constant(1)]];
+constant uint spp           [[function_constant(2)]];
+constant float aspectRatio  [[function_constant(3)]];
+constant float fov          [[function_constant(4)]];
 
 constant float2 screenQuadVerts[6] = {
     {-1, -1}, {-1, 1}, {1, 1},
@@ -75,7 +75,7 @@ float4 importanceSampleGgxVndf(uint2 position, uint32_t rand, float3 normal, flo
 
 kernel void resetImageKernel(
     uint2 position                                                      [[thread_position_in_grid]],
-    texture2d<float, access::write> output                              [[texture(0)]]
+    texture2d<float, access::write> output                              [[texture(2)]]
 ) {
     output.write(float4(), position);
 }
@@ -84,16 +84,16 @@ kernel void generateRayKernel(
     uint2 position                                                      [[thread_position_in_grid]],
     constant uint32_t &rand                                             [[buffer(0)]],
     device Ray *rays                                                    [[buffer(2)]],
-    constant Camera &camera                                             [[buffer(5)]]
+    constant Camera &camera                                             [[buffer(5)]],
+    constant float4x4 &pvMatInv                                         [[buffer(6)]]
 ) {
     if (position.x >= width || position.y >= height) return;
-    float2 randomOffset = float2(randUnif(position, rand), randUnif(position, rand)) - 0.5;
-    float2 normalizedCoords = 2 * ((float2)position + randomOffset) / float2(width, height) - 1;
-    float3 localDirection = normalize(float3(normalizedCoords.x * tan(fovh), normalizedCoords.y * tan(fovv), 1));
+    float2 normalizedCoords = 2 * (float2)position / float2(width, height) - 1;
+    float3 direction = normalize((pvMatInv * float4(normalizedCoords, 1, -1)).xyz);
     rays[position.y * width + position.x] = {
-        .alive = true,
+        .state = RAY_PRIMARY,
         .origin = camera.position,
-        .direction = localDirection.x * camera.right + localDirection.y * camera.up + localDirection.z * camera.forward,
+        .direction = direction,
         .color = float3(1.0f / spp)
     };
 }
@@ -105,11 +105,13 @@ kernel void sampleSceneKernel(
     device Ray *rays                                                    [[buffer(2)]],
     constant uint16_t *geometryMaterials                                [[buffer(3)]],
     constant Material *materials                                        [[buffer(4)]],
-    texture2d<float, access::read_write> output                         [[texture(0)]]
+    texture2d<float, access::write> depthNormal                         [[texture(0)]],
+    texture2d<float, access::write> motion                              [[texture(1)]],
+    texture2d<float, access::read_write> output                         [[texture(2)]]
 ) {
     if (position.x >= width || position.y >= height) return;
     device Ray &ray = rays[position.y * width + position.x];
-    if (!ray.alive) return;
+    if (ray.state == RAY_DEAD) return;
     
     raytracing::intersector<raytracing::triangle_data> primitiveIntersector;
     raytracing::intersection_result<raytracing::triangle_data> intersection = primitiveIntersector.intersect(raytracing::ray{ray.origin, ray.direction, EPSILON}, accelerationStructure);
@@ -119,13 +121,23 @@ kernel void sampleSceneKernel(
     PrimitiveData data = *(const device PrimitiveData*)intersection.primitive_data;
 
     float2 bCoords = intersection.triangle_barycentric_coord;
-    float3 surfaceNormal = bCoords.x * data.v0Normal + bCoords.y * data.v1Normal + (1 - bCoords.x - bCoords.y) * data.v2Normal;
+    float2 currUv = bCoords.x * data.v1CurrUV + bCoords.y * data.v2CurrUV + (1 - bCoords.x - bCoords.y) * data.v0CurrUV;
+    float2 prevUv = bCoords.x * data.v1PrevUV + bCoords.y * data.v2PrevUV + (1 - bCoords.x - bCoords.y) * data.v0PrevUV;
+    float2 dUv = currUv - prevUv;
+    float3 surfaceNormal = normalize(bCoords.x * data.v1Normal + bCoords.y * data.v2Normal + (1 - bCoords.x - bCoords.y) * data.v0Normal);
+    float3 intersectedPosition = ray.origin + intersection.distance * ray.direction;
+    surfaceNormal = faceforward(surfaceNormal, ray.direction, surfaceNormal);
 
     float4 ggxSample = importanceSampleGgxVndf(position, rand, surfaceNormal, ray.direction, mat.roughness);
 
-    ray.alive = hit;
+    if (ray.state == RAY_PRIMARY) {
+        depthNormal.write(float4(1 - 1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : -ray.direction), position);
+        motion.write(length_squared(dUv) > 0 ? float4(dUv, 0, 1) : 1, position);
+    }
+
+    ray.state = hit ? RAY_ALIVE : RAY_DEAD;
     ray.color *= hit ? mat.color : ray.direction.x > 0 ? 1 : 0.25;
-    ray.origin += intersection.distance * ray.direction;
+    ray.origin = intersectedPosition;
     ray.direction = ggxSample.xyz;
 
     if (!hit) output.write(output.read(position) + float4(ray.color, 1), position);

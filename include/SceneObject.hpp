@@ -5,11 +5,12 @@
 
 class SceneObject {
     public:
-        virtual ~SceneObject() = default;
+        SceneObject();
+        virtual ~SceneObject();
 
-        inline MTL::AccelerationStructureGeometryDescriptor* getDescriptor() {return this->_pDescriptor;};
+        inline MTL::AccelerationStructureTriangleGeometryDescriptor* getDescriptor() {return this->_pDescriptor;};
         virtual void update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) {};
         virtual void updateGeometry() {};
-    protected:
-        MTL::AccelerationStructureGeometryDescriptor *_pDescriptor;
+    private:
+        MTL::AccelerationStructureTriangleGeometryDescriptor *_pDescriptor;
 };

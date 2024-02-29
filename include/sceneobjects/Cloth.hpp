@@ -5,14 +5,15 @@
 class Cloth: public SceneObject {
     public:
         Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float unitMass, float springConstant, float dampingConstant);
-        virtual ~Cloth() override;
+        ~Cloth();
 
         virtual void update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) override;
         virtual void updateGeometry() override;
     private:
+        float _springConstant;
+        float _size;
         uint32_t _particleCount;
         MTL::Size _clothTPG, _clothTPT;
-        MTL::AccelerationStructureTriangleGeometryDescriptor *_pTriangleDescriptor;
         MTL::ComputePipelineState *_pComputeClothPipelineState;
         MTL::IntersectionFunctionTable *_pIntersectionFunctionTable;
         MTL::Buffer *_pVertexBuffer;

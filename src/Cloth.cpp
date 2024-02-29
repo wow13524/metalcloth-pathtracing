@@ -5,6 +5,8 @@ void test(MTL::ComputePipelineState *state, NS::Error *e){
 }
 
 Cloth::Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float unitMass, float springConstant, float dampingConstant) {
+    this->_springConstant = springConstant;
+    this->_size = size;
     this->_particleCount = particleCount;
 
     NS::Error *err = nullptr;
@@ -22,21 +24,16 @@ Cloth::Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float uni
             indices[index + 1] = i * particleCount + j + 1;
             indices[index + 2] = (i + 1) * particleCount + j;
             indices[index + 3] = i * particleCount + j + 1;
-            indices[index + 4] = (i + 1) * particleCount + j;
-            indices[index + 5] = (i + 1) * particleCount + j + 1;
+            indices[index + 4] = (i + 1) * particleCount + j + 1;
+            indices[index + 5] = (i + 1) * particleCount + j;
         }
-    }
-    
-    //generate primitive data
-    for (int i = 0; i < 2 * (particleCount - 1) * (particleCount - 1); i++) {
-        primitiveData[i] = PrimitiveData{{0, 0, -1}, {0, 0, -1}, {0, 0, -1}};
     }
 
     //generate particle data
     for (int i = 0; i < particleCount; i++) {
         for (int j = 0; j < particleCount; j++) {
             particleData[i * particleCount + j] = {
-                .alive = i > 0,
+                .alive = true,//i > 0,
                 .normal = simd::float3{ 0, 0, -1},
                 .position = simd::float3{
                     size * (j - (particleCount - 1.0f) / 2) / (particleCount - 1),
@@ -102,14 +99,13 @@ Cloth::Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float uni
     this->_pDataBuffer->didModifyRange(NS::Range::Make(0, this->_pDataBuffer->length()));
     this->_pParticleBuffer->didModifyRange(NS::Range::Make(0, this->_pParticleBuffer->length()));
 
-    this->_pDescriptor = this->_pTriangleDescriptor = MTL::AccelerationStructureTriangleGeometryDescriptor::alloc()->init();
-    this->_pTriangleDescriptor->setTriangleCount(2 * (particleCount - 1) * (particleCount - 1));
-    this->_pTriangleDescriptor->setVertexBuffer(this->_pVertexBuffer);
-    this->_pTriangleDescriptor->setIndexBuffer(pIndexBuffer);
-    this->_pTriangleDescriptor->setPrimitiveDataBuffer(this->_pDataBuffer);
-    this->_pTriangleDescriptor->setPrimitiveDataStride(sizeof(PrimitiveData));
-    this->_pTriangleDescriptor->setPrimitiveDataElementSize(sizeof(PrimitiveData));
-    this->_pTriangleDescriptor->setIntersectionFunctionTableOffset(0);
+    this->getDescriptor()->setTriangleCount(2 * (particleCount - 1) * (particleCount - 1));
+    this->getDescriptor()->setVertexBuffer(this->_pVertexBuffer);
+    this->getDescriptor()->setIndexBuffer(pIndexBuffer);
+    this->getDescriptor()->setPrimitiveDataBuffer(this->_pDataBuffer);
+    this->getDescriptor()->setPrimitiveDataStride(sizeof(PrimitiveData));
+    this->getDescriptor()->setPrimitiveDataElementSize(sizeof(PrimitiveData));
+    this->getDescriptor()->setIntersectionFunctionTableOffset(0);
 
     pFunctionConstants->release();
     pIntersectFunctionDescriptor->release();
@@ -125,7 +121,6 @@ Cloth::Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float uni
 }
 
 Cloth::~Cloth() {
-    this->_pTriangleDescriptor->release();
     this->_pComputeClothPipelineState->release();
     this->_pIntersectionFunctionTable->release();
     this->_pVertexBuffer->release();
@@ -134,8 +129,9 @@ Cloth::~Cloth() {
 }
 
 void Cloth::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) {
-    //generate timestep based on delta time and particle count
-    unsigned int iterations = 100 * this->_particleCount * dt;
+    //generate timestep based on stiffness, particle density, and delta time
+    float density = this->_particleCount / this->_size;
+    unsigned int iterations = 1 + this->_springConstant * density * density * dt;
     float fdt = dt / iterations;
     MTL::ComputeCommandEncoder *pCEnc = pCmd->computeCommandEncoder();
     pCEnc->setBytes(&fdt, sizeof(float), 0);
@@ -146,11 +142,13 @@ void Cloth::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccele
     pCEnc->setBuffer(this->_pVertexBuffer, 0, 5);
     pCEnc->setComputePipelineState(this->_pComputeClothPipelineState);
     for (int i = 0; i < iterations; i++) {
+        bool finalIteration = i == iterations - 1;
+        pCEnc->setBytes(&finalIteration, sizeof(bool), 6);
         pCEnc->dispatchThreadgroups(this->_clothTPG, this->_clothTPT);
     }
     pCEnc->endEncoding();
 }
 
 void Cloth::updateGeometry() {
-    this->_pTriangleDescriptor->setVertexBuffer(this->_pVertexBuffer);
+    this->getDescriptor()->setVertexBuffer(this->_pVertexBuffer);
 }

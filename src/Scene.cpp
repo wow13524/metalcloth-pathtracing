@@ -12,6 +12,12 @@ void Scene::addObject(SceneObject *pSceneObject) {
     this->updateGeometry();
 }
 
+void Scene::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) {
+    for (SceneObject *pSceneObject: this->_sceneObjects) {
+        pSceneObject->update(pCmd, pAccelerationStructure, dt);
+    }
+}
+
 void Scene::updateGeometry() {
     const NS::Object *pGeometryDescriptors[this->_sceneObjects.size()];
     for (int i = 0; i < this->_sceneObjects.size(); i++) {
@@ -21,8 +27,23 @@ void Scene::updateGeometry() {
     this->_pDescriptor->setGeometryDescriptors(NS::Array::alloc()->init(pGeometryDescriptors, this->_sceneObjects.size()));
 }
 
-void Scene::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) {
-    for (SceneObject *pSceneObject: this->_sceneObjects) {
-        pSceneObject->update(pCmd, pAccelerationStructure, dt);
+void Scene::updatePrimitiveMotion(MTL::ComputePipelineState *pComputeMotionPipelineState, MTL::CommandBuffer *pCmd, simd::float4x4 vpMat) {
+    MTL::ComputeCommandEncoder *pCEnc = pCmd->computeCommandEncoder();
+    pCEnc->setComputePipelineState(pComputeMotionPipelineState);
+    for (SceneObject *sceneObject: this->_sceneObjects) {
+        MTL::AccelerationStructureTriangleGeometryDescriptor *pDescriptor = sceneObject->getDescriptor();
+        unsigned int triangleCount = pDescriptor->primitiveDataBuffer()->length() / sizeof(PrimitiveData);
+        pCEnc->setBytes(&triangleCount, sizeof(unsigned int), 0);
+        pCEnc->setBuffer(pDescriptor->vertexBuffer(), 0, 1);
+        pCEnc->setBuffer(pDescriptor->indexBuffer(), 0, 2);
+        pCEnc->setBuffer(pDescriptor->primitiveDataBuffer(), 0, 3);
+        pCEnc->setBytes(&vpMat, sizeof(simd::float4x4), 4);
+        
+        unsigned int motionGroupWidth = pComputeMotionPipelineState->threadExecutionWidth();
+        pCEnc->dispatchThreadgroups(
+            MTL::Size::Make((triangleCount + motionGroupWidth - 1) / motionGroupWidth, 1, 1),
+            MTL::Size::Make(motionGroupWidth, 1, 1)
+        );
     }
+    pCEnc->endEncoding();
 }

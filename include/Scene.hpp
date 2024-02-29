@@ -14,6 +14,7 @@ class Scene {
         virtual std::vector<Material> getMaterials() = 0;
         void update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt);
         void updateGeometry();
+        void updatePrimitiveMotion(MTL::ComputePipelineState *pComputeMotionPipelineState, MTL::CommandBuffer *pCmd, simd::float4x4 vpMat);
     protected:
         MTL::PrimitiveAccelerationStructureDescriptor *_pDescriptor;
 

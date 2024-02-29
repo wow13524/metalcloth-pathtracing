@@ -15,22 +15,24 @@ void applyGravity(device Particle &particle) {
     particle.acceleration += float3(0, -1, 0);
 }
 
-void applySpring(device Particle &particleA, device Particle &particleB, float springLength) {
-    float3 displacement = particleB.position - particleA.position;
-    float difference = springLength - length(displacement);
-    float3 da = -springConstant * difference * normalize(displacement) / particleMass;
+void applySpring(device Particle &particleA, float3 direction, float distance, float springLength) {
+    float3 da = -springConstant * (springLength - distance) * direction / particleMass;
     particleA.acceleration += da / 2;
 }
 
-void applyDamper(device Particle &particleA, device Particle &particleB) {
-    float3 direction = normalize(particleB.position - particleA.position);
-    float3 da = -dampingConstant * dot(particleA.velocity - particleB.velocity, direction) * direction / particleMass;
+void applyDamper(device Particle &particleA, float3 direction, float3 closingVelocity) {
+    float3 da = -dampingConstant * dot(closingVelocity, direction) * direction / particleMass;
     particleA.acceleration += da / 2;
 }
 
 void applySpringDamper(device Particle &particleA, device Particle &particleB, float springLength) {
-    applySpring(particleA, particleB, springLength);
-    applyDamper(particleA, particleB);
+    float3 displacement = particleB.position - particleA.position;
+    float distance = length(displacement);
+    float3 direction = normalize(displacement);
+    direction = all(isfinite(direction)) ? direction : float3();
+    float3 closingVelocity = particleA.velocity - particleB.velocity;
+    applySpring(particleA, direction, distance, springLength);
+    applyDamper(particleA, direction, closingVelocity);
 }
 
 void applyClothSpringDampers(uint2 position, device Particle *particles, uint index, uint distance) {
@@ -50,7 +52,7 @@ void applyDrag(device Particle &particleA, device Particle &particleB, device Pa
     float3 longNormal = cross(particleB.position - particleA.position, particleC.position - particleA.position);
     float3 normal = normalize(longNormal);
     float3 dv = surfaceVelocity - float3(0, 0, 1);
-    float3 crossArea = length(longNormal) / 2 * dot(normalize(dv), normal);
+    float crossArea = length(longNormal) / 2 * dot(normalize(dv), normal);
     float3 da = -1.225 * length_squared(dv) * 1.28 * crossArea * normal / 2 / particleMass;
     particleA.acceleration += da / 2;
 }
@@ -75,25 +77,28 @@ void applyClothDrag(uint2 position, device Particle *particles) {
 }
 
 void simulateMotion(device Particle &particle, float dt) {
-    if (!particle.alive) return;
-    particle.velocity += dt * particle.acceleration;
-    particle.position += dt * particle.velocity;
+    if (particle.alive) {
+        particle.velocity += dt * particle.acceleration;
+        particle.position += dt * particle.velocity;
+    };
     particle.acceleration = 0;
 }
 
 void constrainCollision(device Particle &particle, raytracing::primitive_acceleration_structure accelerationStructure, raytracing::intersection_function_table<raytracing::triangle_data> intersectionFunctionTable, float3 previousPosition) {
     float3 displacement = particle.position - previousPosition;
-    raytracing::ray ray{previousPosition, normalize(displacement), 0, length(displacement) + diagonalSpringLength};
+    float3 direction = normalize(displacement);
+    raytracing::ray ray{previousPosition - EPSILON * direction, direction, 0, length(displacement) + EPSILON};
     raytracing::intersector<raytracing::triangle_data> intersector;
     raytracing::intersection_result<raytracing::triangle_data> intersection = intersector.intersect(ray, accelerationStructure, intersectionFunctionTable, previousPosition);
     
     if (intersection.type != raytracing::intersection_type::none) {
         PrimitiveData data = *(const device PrimitiveData*)intersection.primitive_data;
         float2 bCoords = intersection.triangle_barycentric_coord;
-        float3 surfaceNormal = bCoords.x * data.v0Normal + bCoords.y * data.v1Normal + (1 - bCoords.x - bCoords.y) * data.v2Normal;
+        float3 surfaceNormal = normalize(bCoords.x * data.v0Normal + bCoords.y * data.v1Normal + (1 - bCoords.x - bCoords.y) * data.v2Normal);
+        surfaceNormal = intersection.triangle_front_facing ? surfaceNormal : -surfaceNormal;
 
         particle.velocity += dot(surfaceNormal, -particle.velocity) * surfaceNormal;
-        particle.position = previousPosition + (intersection.distance - diagonalSpringLength) * ray.direction;
+        particle.position = ray.origin + intersection.distance * ray.direction + 2 * EPSILON * surfaceNormal;
     }
 }
 
@@ -126,15 +131,15 @@ void recalculateClothNormals(uint2 position, device Particle *particles, device 
         primitiveData[2 * (triangleIndex - (particleCount - 1) - 1) + 1].v1Normal = averageNormal;
     }
     if (position.x < particleCount - 1 && position.y > 0) {
-        primitiveData[2 * (triangleIndex - (particleCount - 1))].v1Normal = averageNormal;
-        primitiveData[2 * (triangleIndex - (particleCount - 1)) + 1].v0Normal = averageNormal;
+        primitiveData[2 * (triangleIndex - (particleCount - 1))].v2Normal = averageNormal;
+        primitiveData[2 * (triangleIndex - (particleCount - 1)) + 1].v2Normal = averageNormal;
     }
     if (position.x < particleCount - 1 && position.y < particleCount - 1) {
-        primitiveData[2 * triangleIndex + 0].v2Normal = averageNormal;
+        primitiveData[2 * triangleIndex + 0].v0Normal = averageNormal;
     }
     if (position.x > 0 && position.y < particleCount - 1) {
-        primitiveData[2 * (triangleIndex - 1) + 1].v2Normal = averageNormal;
-        primitiveData[2 * (triangleIndex - 1)].v0Normal = averageNormal;
+        primitiveData[2 * (triangleIndex - 1) + 1].v0Normal = averageNormal;
+        primitiveData[2 * (triangleIndex - 1)].v1Normal = averageNormal;
     }
 }
 
@@ -146,7 +151,7 @@ bool intersectIgnoreClothTriangles(
     float3 direction            [[direction]],
     float distance              [[distance]]
 ) {
-    return geometryId != 0 || length_squared(origin + direction * distance - position) > sideSpringLength;
+    return geometryId != 0 || length(origin + direction * distance - position) > EPSILON;
 }
 
 /*
@@ -164,20 +169,22 @@ kernel void simulateClothKernel(
     raytracing::intersection_function_table<raytracing::triangle_data> intersectionFunctionTable    [[buffer(2)]],
     device Particle *particles                                                                      [[buffer(3)]],
     device PrimitiveData *primitiveData                                                             [[buffer(4)]],
-    device packed_float3 *vertices                                                                  [[buffer(5)]]
+    device packed_float3 *vertices                                                                  [[buffer(5)]],
+    constant bool &finalIteration                                                                   [[buffer(6)]]
 ) {
     if (position.x >= particleCount || position.y >= particleCount) return;
     uint index = position.y * particleCount + position.x;
     device Particle &particle = particles[index];
-    float3 previousPosition = particle.position;
 
     applyGravity(particle);
     applyClothSpringDampers(position, particles, index, 1);
     applyClothSpringDampers(position, particles, index, 2);
     applyClothDrag(position, particles);
     simulateMotion(particle, dt);
-    constrainCollision(particle, accelerationStructure, intersectionFunctionTable, previousPosition);
-    recalculateClothNormals(position, particles, primitiveData);
+    if (finalIteration) {
+        constrainCollision(particle, accelerationStructure, intersectionFunctionTable, vertices[index]);
+        recalculateClothNormals(position, particles, primitiveData);
 
-    vertices[index] = particle.position;
+        vertices[index] = particle.position;
+    }
 }

@@ -2,7 +2,7 @@
 
 Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     unsigned int width = pView->drawableSize().width, height = pView->drawableSize().height;
-    float fovh = FOV, fovv = FOV * height / width;
+    float aspectRatio = (float)width / height;
     NS::Error *err = nullptr;
     
     this->_pDevice = pDevice->retain();
@@ -12,15 +12,19 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     pFunctionConstants->setConstantValue(&width, MTL::DataTypeUInt, NS::UInteger(0));
     pFunctionConstants->setConstantValue(&height, MTL::DataTypeUInt, NS::UInteger(1));
     pFunctionConstants->setConstantValue(&SPP, MTL::DataTypeUInt, NS::UInteger(2));
-    pFunctionConstants->setConstantValue(&fovh, MTL::DataTypeFloat, NS::UInteger(3));
-    pFunctionConstants->setConstantValue(&fovv, MTL::DataTypeFloat, NS::UInteger(4));
+    pFunctionConstants->setConstantValue(&aspectRatio, MTL::DataTypeFloat, NS::UInteger(3));
+    pFunctionConstants->setConstantValue(&FOV, MTL::DataTypeFloat, NS::UInteger(4));
 
-    MTL::Library *pLibrary = this->_pDevice->newLibrary(NS::String::string("Shaders.metallib", NS::UTF8StringEncoding), &err);
-    MTL::Function *pResetFunction = pLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
-    MTL::Function *pRayFunction = pLibrary->newFunction(NS::String::string("generateRayKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
-    MTL::Function *pSceneFunction = pLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
-    MTL::Function *pVertexFunction = pLibrary->newFunction(NS::String::string("vertexMain", NS::UTF8StringEncoding));
-    MTL::Function *pFragmentFunction = pLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
+    MTL::Library *pDenoisingLibrary = this->_pDevice->newLibrary(NS::String::string("Denoising.metallib", NS::UTF8StringEncoding), &err);
+    MTL::Library *pShaderLibrary = this->_pDevice->newLibrary(NS::String::string("Shaders.metallib", NS::UTF8StringEncoding), &err);
+    MTL::Function *pResetFunction = pShaderLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
+    MTL::Function *pMotionFunction = pDenoisingLibrary->newFunction(NS::String::string("motionVectorKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pRayFunction = pShaderLibrary->newFunction(NS::String::string("generateRayKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pSceneFunction = pShaderLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pVertexFunction = pShaderLibrary->newFunction(NS::String::string("vertexMain", NS::UTF8StringEncoding));
+    MTL::Function *pFragmentFunction = pShaderLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
+
+    this->_pComputeMotionPipelineState = this->_pDevice->newComputePipelineState(pMotionFunction, &err);
 
     this->_pComputeResetPipelineState = this->_pDevice->newComputePipelineState(pResetFunction, &err);
     unsigned int resetGroupWidth = this->_pComputeResetPipelineState->threadExecutionWidth();
@@ -45,7 +49,29 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     pRenderPipelineDescriptor->setFragmentFunction(pFragmentFunction);
     pRenderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(MTL::PixelFormatBGRA8Unorm_sRGB);
 
+    this->_pDenoiser = SVGFDenoiser::alloc()->init(pDevice);
+
     this->_pRenderPipelineState = this->_pDevice->newRenderPipelineState(pRenderPipelineDescriptor, &err);
+    this->_pDepthNormalTextures[0] = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
+        MTL::PixelFormatRGBA32Float,
+        width,
+        height,
+        false
+    ));
+    this->_pDepthNormalTextures[1] = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
+        MTL::PixelFormatRGBA32Float,
+        width,
+        height,
+        false
+    ));
+
+    this->_pMotionTexture = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
+        MTL::PixelFormatRGBA32Float,
+        width,
+        height,
+        false
+    ));
+
     this->_pOutputTexture = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
         MTL::PixelFormatRGBA32Float,
         width,
@@ -55,11 +81,20 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     
     this->_pRayBuffer = this->_pDevice->newBuffer(width * height * sizeof(Ray), MTL::ResourceStorageModePrivate);
     this->_pCameraBuffer = this->_pDevice->newBuffer(sizeof(Camera), MTL::ResourceStorageModeManaged);
+
+    this->_projectionMatrix = simd::float4x4{
+        simd::float4{1 / tan(FOV), 0, 0, 0},
+        simd::float4{0, aspectRatio / tan(FOV), 0, 0},
+        simd::float4{0, 0, 1 ,-1},
+        simd::float4{0, 0, 2, 0}
+    };
     
     this->loadScene(new TestScene(this->_pDevice));
 
     pFunctionConstants->release();
-    pLibrary->release();
+    pDenoisingLibrary->release();
+    pShaderLibrary->release();
+    pMotionFunction->release();
     pRayFunction->release();
     pSceneFunction->release();
     pVertexFunction->release();
@@ -70,10 +105,15 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
 Renderer::~Renderer() {
     this->_pDevice->release();
     this->_pCommandQueue->release();
+    this->_pComputeMotionPipelineState->release();
     this->_pComputeResetPipelineState->release();
     this->_pComputeRayPipelineState->release();
     this->_pComputeScenePipelineState->release();
     this->_pRenderPipelineState->release();
+    this->_pDenoiser->release();
+    this->_pDepthNormalTextures[0]->release();
+    this->_pDepthNormalTextures[1]->release();
+    this->_pMotionTexture->release();
     this->_pOutputTexture->release();
     this->_pRayBuffer->release();
     this->_pGeometryMaterialBuffer->release();
@@ -128,7 +168,19 @@ void Renderer::draw(MTK::View *pView) {
     pCmd->waitUntilCompleted();
     this->_pScene->updateGeometry();
 
+    simd::float4x4 viewMat = simd_inverse(simd::float4x4{
+        simd::float4{this->_camera.right[0], this->_camera.right[1], this->_camera.right[2], 0},
+        simd::float4{this->_camera.up[0], this->_camera.up[1], this->_camera.up[2], 0},
+        simd::float4{this->_camera.forward[0], this->_camera.forward[1], this->_camera.forward[2], 0},
+        simd::float4{this->_camera.position[0], this->_camera.position[1], this->_camera.position[2], 1}
+    });
+    simd::float4x4 pvMat = this->_projectionMatrix * viewMat;
+    simd::float4x4 pvMatInv = simd_inverse(pvMat);
+
     pCmd = this->_pCommandQueue->commandBuffer();
+
+    //update primitive motion data
+    this->_pScene->updatePrimitiveMotion(this->_pComputeMotionPipelineState, pCmd, pvMat);
 
     //rebuild acceleration structure
     MTL::AccelerationStructureCommandEncoder *pASEnc = pCmd->accelerationStructureCommandEncoder();
@@ -147,7 +199,10 @@ void Renderer::draw(MTK::View *pView) {
     pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 3);
     pCEnc->setBuffer(this->_pMaterialBuffer, 0, 4);
     pCEnc->setBuffer(this->_pCameraBuffer, 0, 5);
-    pCEnc->setTexture(this->_pOutputTexture, 0);
+    pCEnc->setBytes(&pvMatInv, sizeof(simd::float4x4), 6);
+    pCEnc->setTexture(this->_pDepthNormalTextures[0], 0);
+    pCEnc->setTexture(this->_pMotionTexture, 1);
+    pCEnc->setTexture(this->_pOutputTexture, 2);
     pCEnc->setComputePipelineState(this->_pComputeResetPipelineState);
     pCEnc->dispatchThreadgroups(this->_resetTPG, this->_resetTPT);
     //generate primary rays
@@ -166,17 +221,28 @@ void Renderer::draw(MTK::View *pView) {
     }
     pCEnc->endEncoding();
 
+    //denoise
+    MTL::Texture* denoisedOutput = this->_pDenoiser->encodeToCommandBuffer(
+        pCmd,
+        this->_pOutputTexture,
+        this->_pMotionTexture,
+        this->_pDepthNormalTextures[0],
+        this->_pDepthNormalTextures[1]
+    );
+
     //draw texture to screen
     MTL::RenderPassDescriptor *pRpd = pView->currentRenderPassDescriptor();
     MTL::RenderCommandEncoder *pREnc = pCmd->renderCommandEncoder(pRpd);
     pREnc->setRenderPipelineState(this->_pRenderPipelineState);
-    pREnc->setFragmentTexture(this->_pOutputTexture, NS::UInteger(0));
+    pREnc->setFragmentTexture(denoisedOutput, NS::UInteger(0));
     pREnc->drawPrimitives(MTL::PrimitiveTypeTriangle, NS::UInteger(0), NS::UInteger(6));
     pREnc->endEncoding();
 
     pCmd->presentDrawable(pView->currentDrawable());
 
     pCmd->commit();
+
+    std::swap(this->_pDepthNormalTextures[0], this->_pDepthNormalTextures[1]);
 
     pPool->release();
 }
