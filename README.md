@@ -12,6 +12,8 @@ An SVGFDenoiser is used to produce smoother frames as low as 1 sample-per-pixel.
 
 The cloth is currently simulated using a spring-damper model with the addition of bending springs. The cloth is blown against the wind and simulates aerodynamic drag. Normals are averaged between vertices.
 
+The camera can be moved with WASD controls, Q up, E down, and mouse dragging.
+
 ![What the project currently looks like](images/current_state_5.png)
 
 ## Prerequisites
