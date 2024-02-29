@@ -6,11 +6,11 @@ This project is written in C++ using metal-cpp bindings for Metal and AppKit.
 
 ## Current State
 
-As of Tuesday February 27 2024, the project creates a 1920x1080 window and renders an indigo cube atop a pink ground plane. A green cloth is suspended directly above the indigo cube and slightly drapes over it. The background is gray on the left and white on the right, casting light onto the scene. Rays are path traced with 8 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
+As of Wednesday February 28 2024, the project creates a 1920x1080 window and renders an indigo cube atop a pink ground plane. A green cloth is suspended directly above the indigo cube and slightly drapes over it. The background is gray on the left and white on the right, casting light onto the scene. Rays are path traced with 16 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
 
-The cloth is currently simulated using a spring-damper model with the addition of bending springs. Normals for the cloth are still hardcoded.
+The cloth is currently simulated using a spring-damper model with the addition of bending springs. The cloth is blown against the wind and simulates aerodynamic drag. Normals are averaged between vertices.
 
-![What the project currently looks like](images/current_state_3.png)
+![What the project currently looks like](images/current_state_4.png)
 
 ## Prerequisites
 

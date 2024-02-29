@@ -20,7 +20,7 @@ typedef struct Material {
 
 typedef struct Particle {
     bool alive;
-    simd::float3 position, velocity, acceleration;
+    simd::float3 normal, position, velocity, acceleration;
 } Particle;
 
 typedef struct PrimitiveData {

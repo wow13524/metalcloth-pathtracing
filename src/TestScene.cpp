@@ -12,7 +12,7 @@ const Material mats[3] = {
 
 TestScene::TestScene(MTL::Device *pDevice) {
     this->_pDescriptor = MTL::PrimitiveAccelerationStructureDescriptor::alloc()->init();
-    this->addObject(new Cloth(pDevice, 2, 20, 1, 5, 1));
+    this->addObject(new Cloth(pDevice, 2, 40, 1, 20, 2));
     this->addObject(new Cube(pDevice, 1));
     this->addObject(new FloorPlane(pDevice, 5));
 }
