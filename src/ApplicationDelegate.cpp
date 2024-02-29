@@ -54,7 +54,7 @@ void ApplicationDelegate::applicationDidFinishLaunching(NS::Notification *pNotif
 
     this->_pDevice = MTL::CreateSystemDefaultDevice();
 
-    this->_pView = MTK::View::alloc()->init(frame, this->_pDevice);
+    this->_pView = EventView::alloc()->init(frame, this->_pDevice);
     this->_pView->setColorPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm_sRGB);
     this->_pView->setClearColor(MTL::ClearColor::Make(0.0, 0.0, 0.0, 1.0));
 

@@ -5,7 +5,7 @@ CFLAGS := -O3 -Wall -std=c++17 -I./shaders -I./include -I./metal-cpp -I./metal-c
 
 LDFLAGS := -framework Metal -framework Foundation -framework Cocoa -framework CoreGraphics -framework MetalKit -framework MetalPerformanceShaders
 
-OBJECTS := ApplicationDelegate.o Cloth.o Cube.o FloorPlane.o Renderer.o Scene.o SceneObject.o SVGFDenoiser.mo TestScene.o ViewDelegate.o main.o
+OBJECTS := ApplicationDelegate.o Cloth.o Cube.o EventView.mo FloorPlane.o Renderer.o Scene.o SceneObject.o SVGFDenoiser.mo TestScene.o ViewDelegate.o main.o
 
 SHADERS := Denoising.metallib Simulation.metallib Shaders.metallib
 

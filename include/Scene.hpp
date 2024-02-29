@@ -4,6 +4,11 @@
 #include "SceneObject.hpp"
 #include "SharedTypes.h"
 
+typedef struct Camera {
+    float pitch, yaw;
+    simd::float3 position;
+} Camera;
+
 class Scene {
     public:
         virtual ~Scene();

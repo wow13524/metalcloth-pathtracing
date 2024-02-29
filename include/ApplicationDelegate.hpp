@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EventView.h"
 #include "Metal.hpp"
 #include "ViewDelegate.hpp"
 
@@ -13,7 +14,7 @@ class ApplicationDelegate: public NS::ApplicationDelegate {
 
     private:
         MTL::Device *_pDevice;
-        MTK::View *_pView;
+        EventView *_pView;
         NS::Window *_pWindow;
         ViewDelegate *_pViewDelegate;
 

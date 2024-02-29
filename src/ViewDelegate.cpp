@@ -1,6 +1,6 @@
 #include "ViewDelegate.hpp"
 
-ViewDelegate::ViewDelegate(MTL::Device *pDevice, MTK::View *pView) {
+ViewDelegate::ViewDelegate(MTL::Device *pDevice, EventView *pView) {
     this->_pRenderer = new Renderer(pDevice, pView);
 }
 

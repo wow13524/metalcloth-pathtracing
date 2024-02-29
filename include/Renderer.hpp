@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EventDelegate.h"
+#include "EventView.h"
 #include "Metal.hpp"
 #include "SVGFDenoiser.h"
 #include "scenes/TestScene.hpp"
@@ -8,15 +10,16 @@ constexpr uint32_t BOUNCES = 8;
 constexpr uint32_t SPP = 1;
 constexpr float FOV = 90.0f * M_PI / 360;
 
-class SVGFDenoiserAdapter;
-
-class Renderer {
+class Renderer: public EventDelegate {
     public:
-        Renderer(MTL::Device* pDevice, MTK::View *pView);
+        Renderer(MTL::Device* pDevice, EventView *pView);
         ~Renderer();
         void initializeDenoiser();
         void draw(MTK::View* pView);
         void loadScene(Scene *pSscene);
+        virtual void keyDown(unsigned int keyCode) override;
+        virtual void keyUp(unsigned int keyCode) override;
+        virtual void mouseDragged(float deltaX, float deltaY) override;
     private:
         MTL::Size _resetTPG, _resetTPT;
         MTL::Size _rayTPG, _rayTPT;
@@ -35,10 +38,10 @@ class Renderer {
         MTL::Buffer *_pRayBuffer;
         MTL::Buffer *_pGeometryMaterialBuffer;
         MTL::Buffer *_pMaterialBuffer;
-        MTL::Buffer *_pCameraBuffer;
         MTL::Buffer *_pScratchBuffer;
         MTL::AccelerationStructure *_pAccelerationStructure;
         simd::float4x4 _projectionMatrix;
+        simd::float3 _moveDirection = {0, 0, 0};
         Camera _camera;
         Scene *_pScene = nullptr;
         

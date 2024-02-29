@@ -84,7 +84,7 @@ kernel void generateRayKernel(
     uint2 position                                                      [[thread_position_in_grid]],
     constant uint32_t &rand                                             [[buffer(0)]],
     device Ray *rays                                                    [[buffer(2)]],
-    constant Camera &camera                                             [[buffer(5)]],
+    constant float3 &origin                                             [[buffer(5)]],
     constant float4x4 &pvMatInv                                         [[buffer(6)]]
 ) {
     if (position.x >= width || position.y >= height) return;
@@ -92,7 +92,7 @@ kernel void generateRayKernel(
     float3 direction = normalize((pvMatInv * float4(normalizedCoords, 1, -1)).xyz);
     rays[position.y * width + position.x] = {
         .state = RAY_PRIMARY,
-        .origin = camera.position,
+        .origin = origin,
         .direction = direction,
         .color = float3(1.0f / spp)
     };
@@ -132,8 +132,8 @@ kernel void sampleSceneKernel(
 
     if (ray.state == RAY_PRIMARY) {
         depthNormal.write(float4(1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : -ray.direction), position);
-        motion.write(float4(dUv, 0, 1), position);
-        if (length(dUv) == 0 && randUnif(position, rand) < 0.1) {
+        motion.write(0, position);
+        if (length(dUv) > 0 || (length(dUv) == 0 && randUnif(position, rand) < 0.1)) {
             motion.write(1, position);
         }
     }

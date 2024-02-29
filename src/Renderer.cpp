@@ -1,10 +1,11 @@
 #include "Renderer.hpp"
 
-Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
+Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     unsigned int width = pView->drawableSize().width, height = pView->drawableSize().height;
     float aspectRatio = (float)width / height;
     NS::Error *err = nullptr;
     
+    pView->setEventDelegate(this);
     this->_pDevice = pDevice->retain();
     this->_pCommandQueue = this->_pDevice->newCommandQueue();
     
@@ -80,7 +81,6 @@ Renderer::Renderer(MTL::Device *pDevice, MTK::View *pView) {
     ));
     
     this->_pRayBuffer = this->_pDevice->newBuffer(width * height * sizeof(Ray), MTL::ResourceStorageModePrivate);
-    this->_pCameraBuffer = this->_pDevice->newBuffer(sizeof(Camera), MTL::ResourceStorageModeManaged);
 
     this->_projectionMatrix = simd::float4x4{
         simd::float4{1 / tan(FOV), 0, 0, 0},
@@ -118,7 +118,6 @@ Renderer::~Renderer() {
     this->_pRayBuffer->release();
     this->_pGeometryMaterialBuffer->release();
     this->_pMaterialBuffer->release();
-    this->_pCameraBuffer->release();
     this->_pScratchBuffer->release();
     this->_pAccelerationStructure->release();
     delete this->_pScene;
@@ -145,10 +144,8 @@ void Renderer::loadScene(Scene *pScene) {
     this->_pScratchBuffer = this->_pDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
     this->_pAccelerationStructure = this->_pDevice->newAccelerationStructure(sizes.accelerationStructureSize);
 
-    memcpy(this->_pCameraBuffer->contents(), &this->_camera, this->_pCameraBuffer->length());
     memcpy(this->_pGeometryMaterialBuffer->contents(), geometryMaterials.data(), this->_pGeometryMaterialBuffer->length());
     memcpy(this->_pMaterialBuffer->contents(), materials.data(), this->_pMaterialBuffer->length());
-    this->_pCameraBuffer->didModifyRange(NS::Range::Make(0, this->_pCameraBuffer->length()));
     this->_pGeometryMaterialBuffer->didModifyRange(NS::Range::Make(0, this->_pGeometryMaterialBuffer->length()));
     this->_pMaterialBuffer->didModifyRange(NS::Range::Make(0, this->_pMaterialBuffer->length()));
 }
@@ -159,14 +156,21 @@ void Renderer::draw(MTK::View *pView) {
     printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
-    simd::float4x4 viewMat = simd_inverse(simd::float4x4{
-        simd::float4{this->_camera.right[0], this->_camera.right[1], this->_camera.right[2], 0},
-        simd::float4{this->_camera.up[0], this->_camera.up[1], this->_camera.up[2], 0},
-        simd::float4{this->_camera.forward[0], this->_camera.forward[1], this->_camera.forward[2], 0},
+    float cosPitch = cos(this->_camera.pitch), sinPitch = sin(this->_camera.pitch);
+    float cosYaw = cos(this->_camera.yaw), sinYaw = sin(this->_camera.yaw);
+    simd::float4x4 camMat = simd::float4x4{
+        simd::float4{cosPitch, 0, -sinPitch, 0},
+        simd::float4{sinPitch * sinYaw, cosYaw, cosPitch * sinYaw, 0},
+        simd::float4{sinPitch * cosYaw, -sinYaw, cosPitch * cosYaw, 0},
         simd::float4{this->_camera.position[0], this->_camera.position[1], this->_camera.position[2], 1}
-    });
+    };
+    simd::float4x4 viewMat = simd_inverse(camMat);
     simd::float4x4 pvMat = this->_projectionMatrix * viewMat;
     simd::float4x4 pvMatInv = simd_inverse(pvMat);
+
+    simd::float4 moveDirection4 = simd_make_float4(this->_moveDirection);
+    simd::float4 worldMoveDirection4 = camMat * moveDirection4;
+    this->_camera.position += dt * simd_make_float3(worldMoveDirection4);
 
     NS::AutoreleasePool* pPool = NS::AutoreleasePool::alloc()->init();
 
@@ -198,7 +202,7 @@ void Renderer::draw(MTK::View *pView) {
     pCEnc->setBuffer(this->_pRayBuffer, 0, 2);
     pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 3);
     pCEnc->setBuffer(this->_pMaterialBuffer, 0, 4);
-    pCEnc->setBuffer(this->_pCameraBuffer, 0, 5);
+    pCEnc->setBytes(&this->_camera.position, sizeof(simd::float3), 5);
     pCEnc->setBytes(&pvMatInv, sizeof(simd::float4x4), 6);
     pCEnc->setTexture(this->_pDepthNormalTextures[0], 0);
     pCEnc->setTexture(this->_pMotionTexture, 1);
@@ -246,3 +250,51 @@ void Renderer::draw(MTK::View *pView) {
 
     pPool->release();
 }
+
+void Renderer::keyDown(unsigned int keyCode) {
+    this->keyUp(keyCode);
+    switch (keyCode) {
+        case 13: //W
+            this->_moveDirection[2] = 1;
+            return;
+        case 0: //A
+            this->_moveDirection[0] = -1;
+            return;
+        case 1: //S
+            this->_moveDirection[2] = -1;
+            return;
+        case 2: //D
+            this->_moveDirection[0] = 1;
+            return;
+        case 12: //Q
+            this->_moveDirection[1] = -1;
+            return;
+        case 14: //E
+            this->_moveDirection[1] = 1;
+            return;
+    }
+}
+
+void Renderer::keyUp(unsigned int keyCode) {
+    switch (keyCode) {
+        case 13: //W
+        case 1: //S
+            this->_moveDirection[2] = 0;
+            return;
+        case 12: //Q
+        case 14: //E
+            this->_moveDirection[1] = 0;
+            return;
+        case 0: //A
+        case 2: //D
+            this->_moveDirection[0] = 0;
+            return;
+    }
+}
+
+void Renderer::mouseDragged(float deltaX, float deltaY) {
+    this->_camera.pitch += 0.01 * deltaX;
+    this->_camera.yaw += 0.01 * deltaY;
+    this->_camera.yaw = this->_camera.yaw < -M_PI / 2 ? -M_PI / 2 : this->_camera.yaw;
+    this->_camera.yaw = this->_camera.yaw > M_PI / 2 ? M_PI / 2 : this->_camera.yaw;
+};

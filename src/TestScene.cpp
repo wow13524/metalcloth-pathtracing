@@ -18,12 +18,7 @@ TestScene::TestScene(MTL::Device *pDevice) {
 }
 
 Camera TestScene::getInitialCamera() {
-    return Camera(
-        simd::float3{1, 0, 0},
-        simd::float3{0, 0.707106781, 0.707106781},
-        simd::float3{0, -0.707106781, 0.707106781},
-        simd::float3{0, 5, -5}
-    );
+    return Camera{0, M_PI / 4, simd::float3{0, 5, -5}};
 }
 
 std::vector<uint16_t> TestScene::getGeometryMaterials() {
