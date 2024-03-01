@@ -7,7 +7,7 @@ class Cloth: public SceneObject {
         Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float unitMass, float springConstant, float dampingConstant);
         ~Cloth();
 
-        virtual void update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) override;
+        virtual void update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt, simd::float3 moveDirection, bool enable) override;
         virtual void updateGeometry() override;
     private:
         float _springConstant;

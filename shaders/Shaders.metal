@@ -73,6 +73,22 @@ float4 importanceSampleGgxVndf(uint2 position, uint32_t rand, float3 normal, flo
     return float4(lightIn.x * b2 + lightIn.y * normal + lightIn.z * b1, lightIn.y > 0 ? schlickFresnel(-viewOut, 1, 1) * smithG2(lightIn, viewOut, a2) / smithG1(viewOut, a2) : 0);
 }
 
+float3 sampleHdri(texture2d<float, access::sample> hdri, float3 direction) {
+    float2 xz = normalize(direction.xz);
+    float2 uv = float2(atan2(xz.y, xz.x) / 2, asin(direction.y)) / M_PI_F + 0.5;
+    constexpr sampler sam(min_filter::linear, mag_filter::linear, mip_filter::none);
+    return hdri.sample(sam, uv).xyz;
+}
+
+float3 acesTonemap(float3 x) {
+    float a = 2.51f;
+    float b = 0.03f;
+    float c = 2.43f;
+    float d = 0.59f;
+    float e = 0.14f;
+    return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+}
+
 kernel void resetImageKernel(
     uint2 position                                                      [[thread_position_in_grid]],
     texture2d<float, access::write> output                              [[texture(2)]]
@@ -107,7 +123,8 @@ kernel void sampleSceneKernel(
     constant Material *materials                                        [[buffer(4)]],
     texture2d<float, access::write> depthNormal                         [[texture(0)]],
     texture2d<float, access::read_write> motion                         [[texture(1)]],
-    texture2d<float, access::read_write> output                         [[texture(2)]]
+    texture2d<float, access::read_write> output                         [[texture(2)]],
+    texture2d<float, access::sample> hdri                               [[texture(3)]]
 ) {
     if (position.x >= width || position.y >= height) return;
     device Ray &ray = rays[position.y * width + position.x];
@@ -131,7 +148,7 @@ kernel void sampleSceneKernel(
     float4 ggxSample = importanceSampleGgxVndf(position, rand, surfaceNormal, ray.direction, mat.roughness);
 
     if (ray.state == RAY_PRIMARY) {
-        depthNormal.write(float4(1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : -ray.direction), position);
+        depthNormal.write(float4(1 - 1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : float3(0)), position);
         motion.write(0, position);
         if (length(dUv) > 0 || (length(dUv) == 0 && randUnif(position, rand) < 0.1)) {
             motion.write(1, position);
@@ -139,11 +156,11 @@ kernel void sampleSceneKernel(
     }
 
     ray.state = hit ? RAY_ALIVE : RAY_DEAD;
-    ray.color *= hit ? mat.color : ray.direction.x > 0 ? 1 : 0.25;
+    ray.color *= hit ? mat.color : sampleHdri(hdri, ray.direction);
     ray.origin = intersectedPosition;
     ray.direction = ggxSample.xyz;
 
-    if (!hit) output.write(output.read(position) + float4(ray.color, 1), position);
+    if (!hit) output.write(output.read(position) + float4(acesTonemap(ray.color), 1), position);
 }
 
 vertex VertexShaderOut vertexMain(

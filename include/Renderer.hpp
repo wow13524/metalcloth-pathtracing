@@ -32,6 +32,7 @@ class Renderer: public EventDelegate {
         MTL::ComputePipelineState *_pComputeScenePipelineState;
         MTL::RenderPipelineState *_pRenderPipelineState;
         SVGFDenoiser *_pDenoiser;
+        MTL::Texture *_pHdriTexture;
         MTL::Texture *_pDepthNormalTextures[2];
         MTL::Texture *_pMotionTexture;
         MTL::Texture *_pOutputTexture;
@@ -41,6 +42,8 @@ class Renderer: public EventDelegate {
         MTL::Buffer *_pScratchBuffer;
         MTL::AccelerationStructure *_pAccelerationStructure;
         simd::float4x4 _projectionMatrix;
+        bool _wind = false;
+        simd::float3 _clothDirection = {0, 0, 0};
         simd::float3 _moveDirection = {0, 0, 0};
         Camera _camera;
         Scene *_pScene = nullptr;

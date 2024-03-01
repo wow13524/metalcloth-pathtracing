@@ -111,6 +111,7 @@ Renderer::~Renderer() {
     this->_pComputeScenePipelineState->release();
     this->_pRenderPipelineState->release();
     this->_pDenoiser->release();
+    this->_pHdriTexture->release();
     this->_pDepthNormalTextures[0]->release();
     this->_pDepthNormalTextures[1]->release();
     this->_pMotionTexture->release();
@@ -125,6 +126,7 @@ Renderer::~Renderer() {
 
 void Renderer::loadScene(Scene *pScene) {
     if (this->_pScene != nullptr) {
+        this->_pHdriTexture->release();
         this->_pGeometryMaterialBuffer->release();
         this->_pMaterialBuffer->release();
         this->_pScratchBuffer->release();
@@ -134,6 +136,31 @@ void Renderer::loadScene(Scene *pScene) {
 
     this->_pScene = pScene;
     this->_camera = this->_pScene->getInitialCamera();
+
+    uint32_t hdriWidth = this->_pScene->getHdri()->getSizeX();
+    uint32_t hdriHeight = this->_pScene->getHdri()->getSizeY();
+    this->_pHdriTexture = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
+        MTL::PixelFormatRGBA32Float,
+        hdriWidth,
+        hdriHeight,
+        false
+    ));
+
+    MTL::CommandBuffer *pCmd = this->_pCommandQueue->commandBuffer();
+    MTL::BlitCommandEncoder *pBCEnc = pCmd->blitCommandEncoder();
+    pBCEnc->copyFromBuffer(
+        this->_pScene->getHdri()->getBuffer(),
+        0,
+        hdriWidth * sizeof(simd::float4),
+        0,
+        MTL::Size::Make(hdriWidth, hdriHeight, 1),
+        this->_pHdriTexture,
+        0,
+        0,
+        MTL::Origin::Make(0, 0, 0)
+    );
+    pBCEnc->endEncoding();
+    pCmd->commit();
 
     std::vector<uint16_t> geometryMaterials = this->_pScene->getGeometryMaterials();
     std::vector<Material> materials = this->_pScene->getMaterials();
@@ -153,7 +180,7 @@ void Renderer::loadScene(Scene *pScene) {
 void Renderer::draw(MTK::View *pView) {
     auto thisFrame = std::chrono::system_clock::now();
     float dt = (thisFrame - this->_lastFrame).count() / 1e6;
-    printf("FPS: %f\n", 1 / dt);
+    //printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
     float cosPitch = cos(this->_camera.pitch), sinPitch = sin(this->_camera.pitch);
@@ -176,7 +203,7 @@ void Renderer::draw(MTK::View *pView) {
 
     //Simulate scene and update geometry
     MTL::CommandBuffer *pCmd = this->_pCommandQueue->commandBuffer();
-    this->_pScene->update(pCmd, this->_pAccelerationStructure, dt);
+    this->_pScene->update(pCmd, this->_pAccelerationStructure, dt, this->_clothDirection, this->_wind);
     pCmd->commit();
     pCmd->waitUntilCompleted();
     this->_pScene->updateGeometry();
@@ -207,6 +234,7 @@ void Renderer::draw(MTK::View *pView) {
     pCEnc->setTexture(this->_pDepthNormalTextures[0], 0);
     pCEnc->setTexture(this->_pMotionTexture, 1);
     pCEnc->setTexture(this->_pOutputTexture, 2);
+    pCEnc->setTexture(this->_pHdriTexture, 3);
     pCEnc->setComputePipelineState(this->_pComputeResetPipelineState);
     pCEnc->dispatchThreadgroups(this->_resetTPG, this->_resetTPT);
     //generate primary rays
@@ -252,6 +280,7 @@ void Renderer::draw(MTK::View *pView) {
 }
 
 void Renderer::keyDown(unsigned int keyCode) {
+    printf("%u\n", keyCode);
     this->keyUp(keyCode);
     switch (keyCode) {
         case 13: //W
@@ -272,6 +301,29 @@ void Renderer::keyDown(unsigned int keyCode) {
         case 14: //E
             this->_moveDirection[1] = 1;
             return;
+        
+        case 34: //I
+            this->_clothDirection[2] = 1;
+            return;
+        case 38: //J
+            this->_clothDirection[0] = -1;
+            return;
+        case 40: //K
+            this->_clothDirection[2] = -1;
+            return;
+        case 37: //L
+            this->_clothDirection[0] = 1;
+            return;
+        case 32: //I
+            this->_clothDirection[1] = -1;
+            return;
+        case 31: //O
+            this->_clothDirection[1] = 1;
+            return;
+        
+        case 49: //Space
+            this->_wind = !this->_wind;
+            return;
     }
 }
 
@@ -288,6 +340,19 @@ void Renderer::keyUp(unsigned int keyCode) {
         case 0: //A
         case 2: //D
             this->_moveDirection[0] = 0;
+            return;
+        
+        case 34: //I
+        case 40: //K
+            this->_clothDirection[2] = 0;
+            return;
+        case 32: //U
+        case 31: //O
+            this->_clothDirection[1] = 0;
+            return;
+        case 38: //J
+        case 27: //L
+            this->_clothDirection[0] = 0;
             return;
     }
 }

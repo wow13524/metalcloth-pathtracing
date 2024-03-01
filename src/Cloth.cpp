@@ -33,7 +33,7 @@ Cloth::Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float uni
     for (int i = 0; i < particleCount; i++) {
         for (int j = 0; j < particleCount; j++) {
             particleData[i * particleCount + j] = {
-                .alive = true,//i > 0,
+                .alive = i > 0,
                 .normal = simd::float3{ 0, 0, -1},
                 .position = simd::float3{
                     size * (j - (particleCount - 1.0f) / 2) / (particleCount - 1),
@@ -128,7 +128,7 @@ Cloth::~Cloth() {
     this->_pParticleBuffer->release();
 }
 
-void Cloth::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) {
+void Cloth::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt, simd::float3 moveDirection, bool enable) {
     //generate timestep based on stiffness, particle density, and delta time
     float density = this->_particleCount / this->_size;
     unsigned int iterations = 1 + this->_springConstant * density * density * dt;
@@ -140,6 +140,8 @@ void Cloth::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccele
     pCEnc->setBuffer(this->_pParticleBuffer, 0, 3);
     pCEnc->setBuffer(this->_pDataBuffer, 0, 4);
     pCEnc->setBuffer(this->_pVertexBuffer, 0, 5);
+    pCEnc->setBytes(&moveDirection, sizeof(simd::float3), 7);
+    pCEnc->setBytes(&enable, sizeof(bool), 8);
     pCEnc->setComputePipelineState(this->_pComputeClothPipelineState);
     for (int i = 0; i < iterations; i++) {
         bool finalIteration = i == iterations - 1;

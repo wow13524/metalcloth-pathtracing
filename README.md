@@ -1,20 +1,24 @@
 # metalcloth-pathtracing
 
+**I turned in the project and will most likely no longer maintain this repository. All code is available to reference for those looking for modern metal-cpp references.**
+
 This is a repository to document my journey in learning Metal by writing a cloth simulation and rendering the result in real-time using path tracing. It's also my homework!
 
 This project is written in C++ using metal-cpp bindings for Metal and AppKit. A bit of Objective-C++ is used to bridge features that don't have metal-cpp bindings (MPSSVGFDenoiser).
 
 ## Current State
 
-As of Thursday February 29 2024, the project creates a 1920x1080 window and renders an indigo cube atop a pink ground plane. A green cloth is dropped over an indigo cube while being blown against it. The background is gray on the left and white on the right, casting light onto the scene. Rays are path traced with 16 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
+As of Thursday February 29 2024, the project creates a 1920x1080 window and renders a green cloth above an indigo ground plane. The background is an HDR image that can be loaded into scenes. Rays are path traced with 1 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
 
 An SVGFDenoiser is used to produce smoother frames as low as 1 sample-per-pixel.
 
 The cloth is currently simulated using a spring-damper model with the addition of bending springs. The cloth is blown against the wind and simulates aerodynamic drag. Normals are averaged between vertices.
 
-The camera can be moved with WASD controls, Q up, E down, and mouse dragging.
+Camera Controls: WASD, QE (down/up)
+Cloth Controls: IJKL, UO (down/up)
+Wind Toggle: Space
 
-![What the project currently looks like](images/current_state_5.png)
+![What the project currently looks like](images/current_state_6.png)
 
 ## Prerequisites
 

@@ -47,40 +47,44 @@ void applyClothSpringDampers(uint2 position, device Particle *particles, uint in
     if (position.x < particleCount - distance && position.y < particleCount - distance) applySpringDamper(particle, particles[index + distance * particleCount + distance], distance * diagonalSpringLength);
 }
 
-void applyDrag(device Particle &particleA, device Particle &particleB, device Particle &particleC) {
+void applyDrag(device Particle &particleA, device Particle &particleB, device Particle &particleC, bool enableWind) {
     float3 surfaceVelocity = (particleA.velocity + particleB.velocity + particleC.velocity) / 3;
     float3 longNormal = cross(particleB.position - particleA.position, particleC.position - particleA.position);
     float3 normal = normalize(longNormal);
-    float3 dv = surfaceVelocity - float3(0, 0, 1);
+    float3 dv = surfaceVelocity - (enableWind ? float3(0, 0, 2) : float3());
+    if (length(dv) < EPSILON) return;
     float crossArea = length(longNormal) / 2 * dot(normalize(dv), normal);
     float3 da = -1.225 * length_squared(dv) * 1.28 * crossArea * normal / 2 / particleMass;
     particleA.acceleration += da / 2;
 }
 
-void applyClothDrag(uint2 position, device Particle *particles) {
+void applyClothDrag(uint2 position, device Particle *particles, bool enableWind) {
     uint index = position.y * particleCount + position.x;
     device Particle &particle = particles[index];
     if (position.x > 0 && position.y > 0) {
-        applyDrag(particle, particles[index - 1], particles[index - particleCount]);
+        applyDrag(particle, particles[index - 1], particles[index - particleCount], enableWind);
     }
     if (position.x < particleCount - 1 && position.y > 0) {
-        applyDrag(particle, particles[index - particleCount], particles[index - particleCount + 1]);
-        applyDrag(particle, particles[index - particleCount + 1], particles[index + 1]);
+        applyDrag(particle, particles[index - particleCount], particles[index - particleCount + 1], enableWind);
+        applyDrag(particle, particles[index - particleCount + 1], particles[index + 1], enableWind);
     }
     if (position.x < particleCount - 1 && position.y < particleCount - 1) {
-        applyDrag(particle, particles[index + 1], particles[index + particleCount]);
+        applyDrag(particle, particles[index + 1], particles[index + particleCount], enableWind);
     }
     if (position.x > 0 && position.y < particleCount - 1) {
-        applyDrag(particle, particles[index + particleCount], particles[index + particleCount - 1]);
-        applyDrag(particle, particles[index + particleCount - 1], particles[index - 1]);
+        applyDrag(particle, particles[index + particleCount], particles[index + particleCount - 1], enableWind);
+        applyDrag(particle, particles[index + particleCount - 1], particles[index - 1], enableWind);
     }
 }
 
-void simulateMotion(device Particle &particle, float dt) {
+void simulateMotion(device Particle &particle, float dt, float3 moveDirection) {
     if (particle.alive) {
         particle.velocity += dt * particle.acceleration;
         particle.position += dt * particle.velocity;
-    };
+    }
+    else {
+        particle.position += moveDirection * dt;
+    }
     particle.acceleration = 0;
 }
 
@@ -170,7 +174,9 @@ kernel void simulateClothKernel(
     device Particle *particles                                                                      [[buffer(3)]],
     device PrimitiveData *primitiveData                                                             [[buffer(4)]],
     device packed_float3 *vertices                                                                  [[buffer(5)]],
-    constant bool &finalIteration                                                                   [[buffer(6)]]
+    constant bool &finalIteration                                                                   [[buffer(6)]],
+    constant float3 &moveDirection                                                                  [[buffer(7)]],
+    constant bool &enableWind                                                                       [[buffer(8)]]
 ) {
     if (position.x >= particleCount || position.y >= particleCount) return;
     uint index = position.y * particleCount + position.x;
@@ -179,8 +185,8 @@ kernel void simulateClothKernel(
     applyGravity(particle);
     applyClothSpringDampers(position, particles, index, 1);
     applyClothSpringDampers(position, particles, index, 2);
-    applyClothDrag(position, particles);
-    simulateMotion(particle, dt);
+    applyClothDrag(position, particles, enableWind);
+    simulateMotion(particle, dt, moveDirection);
     if (finalIteration) {
         constrainCollision(particle, accelerationStructure, intersectionFunctionTable, vertices[index]);
         recalculateClothNormals(position, particles, primitiveData);

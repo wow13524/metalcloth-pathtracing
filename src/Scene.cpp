@@ -12,9 +12,17 @@ void Scene::addObject(SceneObject *pSceneObject) {
     this->updateGeometry();
 }
 
-void Scene::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt) {
+void Scene::loadHdri(MTL::Device *pDevice, const char *fileName) {
+    this->_pHdri = new Hdri(pDevice, fileName);
+}
+
+Hdri* Scene::getHdri() {
+    return this->_pHdri;
+}
+
+void Scene::update(MTL::CommandBuffer *pCmd, MTL::AccelerationStructure *pAccelerationStructure, float dt, simd::float3 moveDirection, bool enable) {
     for (SceneObject *pSceneObject: this->_sceneObjects) {
-        pSceneObject->update(pCmd, pAccelerationStructure, dt);
+        pSceneObject->update(pCmd, pAccelerationStructure, dt, moveDirection, enable);
     }
 }
 
