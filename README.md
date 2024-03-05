@@ -8,7 +8,9 @@ This project is written in C++ using metal-cpp bindings for Metal and AppKit. A 
 
 ## Current State
 
-As of Thursday February 29 2024, the project creates a 1920x1080 window and renders a green cloth above an indigo ground plane. The background is an HDR image that can be loaded into scenes. Rays are path traced with 1 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
+As of Monday March 4 2024, the project creates a 1920x1080 window and renders a green cloth above an indigo ground plane. The background is an HDR image that can be loaded into scenes. Rays are path traced with 32 samples-per-pixel and 8 bounces. Light is calculated using a Cook-Torrence model.
+
+The compute kernel has been updated to minimize device memory read/write which turned out to be a big bottleneck in scene sampling.
 
 An SVGFDenoiser is used to produce smoother frames as low as 1 sample-per-pixel.
 
@@ -18,7 +20,7 @@ Camera Controls: WASD, QE (down/up)
 Cloth Controls: IJKL, UO (down/up)
 Wind Toggle: Space
 
-![What the project currently looks like](images/current_state_6.png)
+![What the project currently looks like](images/current_state_7.png)
 
 ## Prerequisites
 

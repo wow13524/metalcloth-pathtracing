@@ -7,7 +7,7 @@
 #include "scenes/TestScene.hpp"
 
 constexpr uint32_t BOUNCES = 8;
-constexpr uint32_t SPP = 1;
+constexpr uint32_t SPP = 32;
 constexpr float FOV = 90.0f * M_PI / 360;
 
 class Renderer: public EventDelegate {
@@ -22,13 +22,13 @@ class Renderer: public EventDelegate {
         virtual void mouseDragged(float deltaX, float deltaY) override;
     private:
         MTL::Size _resetTPG, _resetTPT;
-        MTL::Size _rayTPG, _rayTPT;
+        MTL::Size _finalizeTPG, _finalizeTPT;
         MTL::Size _sceneTPG, _sceneTPT;
         MTL::Device *_pDevice;
         MTL::CommandQueue *_pCommandQueue;
         MTL::ComputePipelineState *_pComputeMotionPipelineState;
         MTL::ComputePipelineState *_pComputeResetPipelineState;
-        MTL::ComputePipelineState *_pComputeRayPipelineState;
+        MTL::ComputePipelineState *_pComputeFinalizePipelineState;
         MTL::ComputePipelineState *_pComputeScenePipelineState;
         MTL::RenderPipelineState *_pRenderPipelineState;
         SVGFDenoiser *_pDenoiser;

@@ -20,7 +20,7 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     MTL::Library *pShaderLibrary = this->_pDevice->newLibrary(NS::String::string("Shaders.metallib", NS::UTF8StringEncoding), &err);
     MTL::Function *pResetFunction = pShaderLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
     MTL::Function *pMotionFunction = pDenoisingLibrary->newFunction(NS::String::string("motionVectorKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
-    MTL::Function *pRayFunction = pShaderLibrary->newFunction(NS::String::string("generateRayKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pFinalizeFunction = pShaderLibrary->newFunction(NS::String::string("finalizeImageKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
     MTL::Function *pSceneFunction = pShaderLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
     MTL::Function *pVertexFunction = pShaderLibrary->newFunction(NS::String::string("vertexMain", NS::UTF8StringEncoding));
     MTL::Function *pFragmentFunction = pShaderLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
@@ -33,11 +33,11 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     this->_resetTPG = MTL::Size::Make((width + resetGroupWidth - 1) / resetGroupWidth, (height + resetGroupHeight - 1) / resetGroupHeight, 1);
     this->_resetTPT = MTL::Size::Make(resetGroupWidth, resetGroupHeight, 1);
 
-    this->_pComputeRayPipelineState = this->_pDevice->newComputePipelineState(pRayFunction, &err);
-    unsigned int rayGroupWidth = this->_pComputeRayPipelineState->threadExecutionWidth();
-    unsigned int rayGroupHeight = this->_pComputeRayPipelineState->maxTotalThreadsPerThreadgroup() / rayGroupWidth;
-    this->_rayTPG = MTL::Size::Make((width + rayGroupWidth - 1) / rayGroupWidth, (height + rayGroupHeight - 1) / rayGroupHeight, 1);
-    this->_rayTPT = MTL::Size::Make(rayGroupWidth, rayGroupHeight, 1);
+    this->_pComputeFinalizePipelineState = this->_pDevice->newComputePipelineState(pFinalizeFunction, &err);
+    unsigned int finalizeGroupWidth = this->_pComputeFinalizePipelineState->threadExecutionWidth();
+    unsigned int finalizeGroupHeight = this->_pComputeFinalizePipelineState->maxTotalThreadsPerThreadgroup() / finalizeGroupWidth;
+    this->_finalizeTPG = MTL::Size::Make((width + finalizeGroupWidth - 1) / finalizeGroupWidth, (height + finalizeGroupHeight - 1) / finalizeGroupHeight, 1);
+    this->_finalizeTPT = MTL::Size::Make(finalizeGroupWidth, finalizeGroupHeight, 1);
 
     this->_pComputeScenePipelineState = this->_pDevice->newComputePipelineState(pSceneFunction, &err);
     unsigned int sceneGroupWidth = this->_pComputeScenePipelineState->threadExecutionWidth();
@@ -95,7 +95,7 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     pDenoisingLibrary->release();
     pShaderLibrary->release();
     pMotionFunction->release();
-    pRayFunction->release();
+    pFinalizeFunction->release();
     pSceneFunction->release();
     pVertexFunction->release();
     pFragmentFunction->release();
@@ -107,7 +107,7 @@ Renderer::~Renderer() {
     this->_pCommandQueue->release();
     this->_pComputeMotionPipelineState->release();
     this->_pComputeResetPipelineState->release();
-    this->_pComputeRayPipelineState->release();
+    this->_pComputeFinalizePipelineState->release();
     this->_pComputeScenePipelineState->release();
     this->_pRenderPipelineState->release();
     this->_pDenoiser->release();
@@ -180,7 +180,7 @@ void Renderer::loadScene(Scene *pScene) {
 void Renderer::draw(MTK::View *pView) {
     auto thisFrame = std::chrono::system_clock::now();
     float dt = (thisFrame - this->_lastFrame).count() / 1e6;
-    //printf("FPS: %f\n", 1 / dt);
+    printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
     float cosPitch = cos(this->_camera.pitch), sinPitch = sin(this->_camera.pitch);
@@ -237,20 +237,15 @@ void Renderer::draw(MTK::View *pView) {
     pCEnc->setTexture(this->_pHdriTexture, 3);
     pCEnc->setComputePipelineState(this->_pComputeResetPipelineState);
     pCEnc->dispatchThreadgroups(this->_resetTPG, this->_resetTPT);
-    //generate primary rays
-    uint32_t r;
+    //sample scene
+    pCEnc->setComputePipelineState(this->_pComputeScenePipelineState);
     for (int i = 0; i < SPP; i++) {
-        r = rand();
+        uint32_t r = rand();
         pCEnc->setBytes(&r, sizeof(uint32_t), 0);
-        pCEnc->setComputePipelineState(this->_pComputeRayPipelineState);
-        pCEnc->dispatchThreadgroups(this->_rayTPG, this->_rayTPT);
-        //sample scene
-        pCEnc->setComputePipelineState(this->_pComputeScenePipelineState);
-        for (int j = 0; j < BOUNCES; j++) {
-            pCEnc->setBytes(&r, sizeof(uint32_t), 0);
-            pCEnc->dispatchThreadgroups(this->_sceneTPG, this->_sceneTPT);
-        }
+        pCEnc->dispatchThreadgroups(this->_sceneTPG, this->_sceneTPT);
     }
+    pCEnc->setComputePipelineState(this->_pComputeFinalizePipelineState);
+    pCEnc->dispatchThreadgroups(this->_finalizeTPG, this->_finalizeTPT);
     pCEnc->endEncoding();
 
     //denoise
@@ -280,7 +275,6 @@ void Renderer::draw(MTK::View *pView) {
 }
 
 void Renderer::keyDown(unsigned int keyCode) {
-    printf("%u\n", keyCode);
     this->keyUp(keyCode);
     switch (keyCode) {
         case 13: //W
