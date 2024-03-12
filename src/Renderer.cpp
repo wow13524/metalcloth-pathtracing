@@ -2,7 +2,7 @@
 
 Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     unsigned int width = pView->drawableSize().width, height = pView->drawableSize().height;
-    float aspectRatio = (float)width / height;
+    float aspectRatio = (float)height / width;
     NS::Error *err = nullptr;
     
     pView->setEventDelegate(this);
@@ -13,11 +13,9 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     pFunctionConstants->setConstantValue(&width, MTL::DataTypeUInt, NS::UInteger(0));
     pFunctionConstants->setConstantValue(&height, MTL::DataTypeUInt, NS::UInteger(1));
     pFunctionConstants->setConstantValue(&SPP, MTL::DataTypeUInt, NS::UInteger(2));
-    pFunctionConstants->setConstantValue(&aspectRatio, MTL::DataTypeFloat, NS::UInteger(3));
-    pFunctionConstants->setConstantValue(&FOV, MTL::DataTypeFloat, NS::UInteger(4));
+    pFunctionConstants->setConstantValue(&BOUNCES, MTL::DataTypeUInt, NS::UInteger(3));
 
     MTL::Library *pLibrary = this->_pDevice->newDefaultLibrary();
-    MTL::Function *pResetFunction = pLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
     MTL::Function *pMotionFunction = pLibrary->newFunction(NS::String::string("motionVectorKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
     MTL::Function *pFinalizeFunction = pLibrary->newFunction(NS::String::string("finalizeImageKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
     MTL::Function *pSceneFunction = pLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
@@ -25,18 +23,6 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     MTL::Function *pFragmentFunction = pLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
 
     this->_pComputeMotionPipelineState = this->_pDevice->newComputePipelineState(pMotionFunction, &err);
-
-    this->_pComputeResetPipelineState = this->_pDevice->newComputePipelineState(pResetFunction, &err);
-    unsigned int resetGroupWidth = this->_pComputeResetPipelineState->threadExecutionWidth();
-    unsigned int resetGroupHeight = this->_pComputeResetPipelineState->maxTotalThreadsPerThreadgroup() / resetGroupWidth;
-    this->_resetTPG = MTL::Size::Make((width + resetGroupWidth - 1) / resetGroupWidth, (height + resetGroupHeight - 1) / resetGroupHeight, 1);
-    this->_resetTPT = MTL::Size::Make(resetGroupWidth, resetGroupHeight, 1);
-
-    this->_pComputeFinalizePipelineState = this->_pDevice->newComputePipelineState(pFinalizeFunction, &err);
-    unsigned int finalizeGroupWidth = this->_pComputeFinalizePipelineState->threadExecutionWidth();
-    unsigned int finalizeGroupHeight = this->_pComputeFinalizePipelineState->maxTotalThreadsPerThreadgroup() / finalizeGroupWidth;
-    this->_finalizeTPG = MTL::Size::Make((width + finalizeGroupWidth - 1) / finalizeGroupWidth, (height + finalizeGroupHeight - 1) / finalizeGroupHeight, 1);
-    this->_finalizeTPT = MTL::Size::Make(finalizeGroupWidth, finalizeGroupHeight, 1);
 
     this->_pComputeScenePipelineState = this->_pDevice->newComputePipelineState(pSceneFunction, &err);
     unsigned int sceneGroupWidth = this->_pComputeScenePipelineState->threadExecutionWidth();
@@ -61,10 +47,13 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
 
     this->_projectionMatrix = simd::float4x4{
         simd::float4{1 / tan(FOV), 0, 0, 0},
-        simd::float4{0, aspectRatio / tan(FOV), 0, 0},
-        simd::float4{0, 0, 1 ,-1},
-        simd::float4{0, 0, 2, 0}
+        simd::float4{0, 1 / (aspectRatio * tan(FOV)), 0, 0},
+        simd::float4{0, 0, 1, -1},
+        simd::float4{0, 0, -2, 0}
     };
+
+    simd::float4 x = this->_projectionMatrix * simd::float4{0, 0, -10, 1};
+    printf("%f %f %f %f\n", x[0], x[1], x[2], x[3]);
     
     this->loadScene(new TestScene(this->_pDevice));
 
@@ -82,8 +71,6 @@ Renderer::~Renderer() {
     this->_pDevice->release();
     this->_pCommandQueue->release();
     this->_pComputeMotionPipelineState->release();
-    this->_pComputeResetPipelineState->release();
-    this->_pComputeFinalizePipelineState->release();
     this->_pComputeScenePipelineState->release();
     this->_pRenderPipelineState->release();
     this->_pDenoiser->release();
@@ -155,7 +142,7 @@ void Renderer::loadScene(Scene *pScene) {
 void Renderer::draw(MTK::View *pView) {
     auto thisFrame = std::chrono::system_clock::now();
     float dt = (thisFrame - this->_lastFrame).count() / 1e6;
-    printf("FPS: %f\n", 1 / dt);
+    //printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
     float cosPitch = cos(this->_camera.pitch), sinPitch = sin(this->_camera.pitch);
@@ -198,8 +185,9 @@ void Renderer::draw(MTK::View *pView) {
     );
     pASEnc->endEncoding();
 
-    //reset output texture
     MTL::ComputeCommandEncoder *pCEnc = pCmd->computeCommandEncoder();
+    uint32_t r = rand();
+    pCEnc->setBytes(&r, sizeof(uint32_t), 0);
     pCEnc->setAccelerationStructure(this->_pAccelerationStructure, 1);
     pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 2);
     pCEnc->setBuffer(this->_pMaterialBuffer, 0, 3);
@@ -209,17 +197,10 @@ void Renderer::draw(MTK::View *pView) {
     pCEnc->setTexture(this->_pMotionTexture, 1);
     pCEnc->setTexture(this->_pOutputTexture, 2);
     pCEnc->setTexture(this->_pHdriTexture, 3);
-    pCEnc->setComputePipelineState(this->_pComputeResetPipelineState);
-    pCEnc->dispatchThreadgroups(this->_resetTPG, this->_resetTPT);
+
     //sample scene
     pCEnc->setComputePipelineState(this->_pComputeScenePipelineState);
-    for (int i = 0; i < SPP; i++) {
-        uint32_t r = rand();
-        pCEnc->setBytes(&r, sizeof(uint32_t), 0);
-        pCEnc->dispatchThreadgroups(this->_sceneTPG, this->_sceneTPT);
-    }
-    pCEnc->setComputePipelineState(this->_pComputeFinalizePipelineState);
-    pCEnc->dispatchThreadgroups(this->_finalizeTPG, this->_finalizeTPT);
+    pCEnc->dispatchThreadgroups(this->_sceneTPG, this->_sceneTPT);
     pCEnc->endEncoding();
 
     //denoise

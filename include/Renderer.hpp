@@ -21,14 +21,10 @@ class Renderer: public EventDelegate {
         virtual void keyUp(unsigned int keyCode) override;
         virtual void mouseDragged(float deltaX, float deltaY) override;
     private:
-        MTL::Size _resetTPG, _resetTPT;
-        MTL::Size _finalizeTPG, _finalizeTPT;
         MTL::Size _sceneTPG, _sceneTPT;
         MTL::Device *_pDevice;
         MTL::CommandQueue *_pCommandQueue;
         MTL::ComputePipelineState *_pComputeMotionPipelineState;
-        MTL::ComputePipelineState *_pComputeResetPipelineState;
-        MTL::ComputePipelineState *_pComputeFinalizePipelineState;
         MTL::ComputePipelineState *_pComputeScenePipelineState;
         MTL::RenderPipelineState *_pRenderPipelineState;
         SVGFDenoiser *_pDenoiser;

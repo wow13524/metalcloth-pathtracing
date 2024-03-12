@@ -1,14 +1,11 @@
-#include <metal_math>
-#include <metal_stdlib>
-#include "SharedTypes.h"
+#include "Utils.metal"
 
 using namespace metal;
 
 constant uint width         [[function_constant(0)]];
 constant uint height        [[function_constant(1)]];
 constant uint spp           [[function_constant(2)]];
-constant float aspectRatio  [[function_constant(3)]];
-constant float fov          [[function_constant(4)]];
+constant uint bounces       [[function_constant(3)]];
 
 constant float2 screenQuadVerts[6] = {
     {-1, -1}, {-1, 1}, {1, 1},
@@ -89,18 +86,17 @@ float3 acesTonemap(float3 x) {
     return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
 }
 
-kernel void resetImageKernel(
-    uint2 position                                                      [[thread_position_in_grid]],
-    texture2d<float, access::write> output                              [[texture(2)]]
-) {
-    output.write(float4(), position);
-}
-
-kernel void finalizeImageKernel(
-    uint2 position                                                      [[thread_position_in_grid]],
-    texture2d<float, access::read_write> output                              [[texture(2)]]
-) {
-    output.write(float4(acesTonemap(output.read(position).xyz / spp), 1), position);
+float2 samplePrevUv(PrimitiveData data, float2 uv) {
+    float2 v0 = data.v1CurrUV - data.v0CurrUV;
+    float2 v1 = data.v2CurrUV - data.v0CurrUV;
+    float2 v2 = uv - data.v0CurrUV;
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+    float2 barycentricCoords = float2(d11 * d20 - d01 * d21, d00 * d21 - d01 * d20) / (d00 * d11 - d01 * d01);
+    return (1 - barycentricCoords.x - barycentricCoords.y) * data.v0PrevUV + barycentricCoords.x * data.v1PrevUV + barycentricCoords.y * data.v2PrevUV;
 }
 
 kernel void sampleSceneKernel(
@@ -117,47 +113,53 @@ kernel void sampleSceneKernel(
     texture2d<float, access::sample> hdri                               [[texture(3)]]
 ) {
     if (position.x >= width || position.y >= height) return;
-    float2 normalizedCoords = 2 * (float2)position / float2(width, height) - 1;
-    float3 direction = normalize((pvMatInv * float4(normalizedCoords, 1, -1)).xyz);
-    raytracing::ray ray{origin, direction, EPSILON};
-    float3 color = 1;
-    
-    raytracing::intersector<raytracing::triangle_data> primitiveIntersector;
+    float3 accumulatedColor = float3();
 
-    for (uint i = 0; i < 8; i++) {
-        raytracing::intersection_result<raytracing::triangle_data> intersection = primitiveIntersector.intersect(ray, accelerationStructure);
+    for (uint i = 0; i < spp; i++) {
+        float2 uv = (float2)position / float2(width, height);
+        float2 normalizedCoords = 2 * uv - 1;
+        float3 direction = normalize((pvMatInv * float4(normalizedCoords, 1, -1)).xyz);
+        raytracing::ray ray{origin, direction, EPSILON};
+        float3 color = 1;
+        
+        raytracing::intersector<raytracing::triangle_data> primitiveIntersector;
 
-        bool hit = intersection.type != raytracing::intersection_type::none;
-        Material mat = materials[geometryMaterials[intersection.geometry_id]];
-        PrimitiveData data = *(const device PrimitiveData*)intersection.primitive_data;
+        for (uint j = 0; j < bounces; j++) {
+            raytracing::intersection_result<raytracing::triangle_data> intersection = primitiveIntersector.intersect(ray, accelerationStructure);
 
-        float2 bCoords = intersection.triangle_barycentric_coord;
-        float2 currUv = bCoords.x * data.v1CurrUV + bCoords.y * data.v2CurrUV + (1 - bCoords.x - bCoords.y) * data.v0CurrUV;
-        float2 prevUv = bCoords.x * data.v1PrevUV + bCoords.y * data.v2PrevUV + (1 - bCoords.x - bCoords.y) * data.v0PrevUV;
-        float2 dUv = currUv - prevUv;
-        float3 surfaceNormal = normalize(bCoords.x * data.v1Normal + bCoords.y * data.v2Normal + (1 - bCoords.x - bCoords.y) * data.v0Normal);
-        float3 intersectedPosition = ray.origin + intersection.distance * ray.direction;
-        surfaceNormal = faceforward(surfaceNormal, ray.direction, surfaceNormal);
+            bool hit = intersection.type != raytracing::intersection_type::none;
+            Material mat = materials[geometryMaterials[intersection.geometry_id]];
+            PrimitiveData data = *(const device PrimitiveData*)intersection.primitive_data;
 
-        float4 ggxSample = importanceSampleGgxVndf(position, rand, surfaceNormal, ray.direction, mat.roughness);
+            float3 barycentricCoords = float3(1 - intersection.triangle_barycentric_coord.x - intersection.triangle_barycentric_coord.y, intersection.triangle_barycentric_coord.x, intersection.triangle_barycentric_coord.y);
+            float2 currUv = uv;//bCoords.x * data.v1CurrUV + bCoords.y * data.v2CurrUV + (1 - bCoords.x - bCoords.y) * data.v0CurrUV;
+            float2 prevUv = samplePrevUv(data, uv);
+            float2 dUv = currUv - prevUv;
+            float3 surfaceNormal = normalize(barycentricCoords.x * data.v0Normal + barycentricCoords.y * data.v1Normal + barycentricCoords.z * data.v2Normal);
+            float3 intersectedPosition = ray.origin + intersection.distance * ray.direction;
+            surfaceNormal = faceforward(surfaceNormal, ray.direction, surfaceNormal);
 
-        if (i == 0) {
-            depthNormal.write(float4(1 - 1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : float3(0)), position);
-            motion.write(0, position);
-            if (length(dUv) > 0 || (length(dUv) == 0 && randUnif(position, rand) < 0.1)) {
-                motion.write(1, position);
+            float4 ggxSample = importanceSampleGgxVndf(position, rand * (i + 1) * (j + 1), surfaceNormal, ray.direction, mat.roughness);
+
+            if (j == 0) {
+                depthNormal.write(float4(1 - 1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : float3(0)), position);
+                motion.write(float4(dUv, 0, 1), position);
+                if (length(dUv) < EPSILON && randUnif(position, rand * (i + 1) * (j + 1)) < 0.1) {
+                    motion.write(1, position);
+                }
+            }
+
+            color *= hit ? mat.color : sampleHdri(hdri, ray.direction);
+            ray.origin = intersectedPosition;
+            ray.direction = ggxSample.xyz;
+
+            if (!hit) {
+                accumulatedColor += color / spp;
+                break;
             }
         }
-
-        color *= hit ? mat.color : sampleHdri(hdri, ray.direction);
-        ray.origin = intersectedPosition;
-        ray.direction = ggxSample.xyz;
-
-        if (!hit) {
-            output.write(output.read(position) + float4(color, 1), position);
-            break;
-        }
     }
+    output.write(float4(acesTonemap(accumulatedColor), 1), position);
 }
 
 vertex VertexShaderOut vertexMain(
