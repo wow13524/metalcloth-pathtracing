@@ -28,8 +28,3 @@ typedef struct PrimitiveData {
     simd::float2 v0PrevUV, v1PrevUV, v2PrevUV, v0CurrUV, v1CurrUV, v2CurrUV;
     simd::float3 v0Normal, v1Normal, v2Normal;
 } PrimitiveData;
-
-typedef struct Ray {
-    RayState state;
-    simd::float3 origin, direction, color;
-} Ray;

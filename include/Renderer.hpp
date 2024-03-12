@@ -36,7 +36,6 @@ class Renderer: public EventDelegate {
         MTL::Texture *_pDepthNormalTextures[2];
         MTL::Texture *_pMotionTexture;
         MTL::Texture *_pOutputTexture;
-        MTL::Buffer *_pRayBuffer;
         MTL::Buffer *_pGeometryMaterialBuffer;
         MTL::Buffer *_pMaterialBuffer;
         MTL::Buffer *_pScratchBuffer;

@@ -51,35 +51,13 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
 
     this->_pDenoiser = SVGFDenoiser::alloc()->init(pDevice);
 
+    MTL::TextureDescriptor *pFrameDescriptor = MTL::TextureDescriptor::texture2DDescriptor(MTL::PixelFormatRGBA32Float, width, height, false);
     this->_pRenderPipelineState = this->_pDevice->newRenderPipelineState(pRenderPipelineDescriptor, &err);
-    this->_pDepthNormalTextures[0] = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
-        MTL::PixelFormatRGBA32Float,
-        width,
-        height,
-        false
-    ));
-    this->_pDepthNormalTextures[1] = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
-        MTL::PixelFormatRGBA32Float,
-        width,
-        height,
-        false
-    ));
-
-    this->_pMotionTexture = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
-        MTL::PixelFormatRGBA32Float,
-        width,
-        height,
-        false
-    ));
-
-    this->_pOutputTexture = this->_pDevice->newTexture(MTL::TextureDescriptor::texture2DDescriptor(
-        MTL::PixelFormatRGBA32Float,
-        width,
-        height,
-        false
-    ));
+    this->_pDepthNormalTextures[0] = this->_pDevice->newTexture(pFrameDescriptor);
+    this->_pDepthNormalTextures[1] = this->_pDevice->newTexture(pFrameDescriptor);
+    this->_pMotionTexture = this->_pDevice->newTexture(pFrameDescriptor);
+    this->_pOutputTexture = this->_pDevice->newTexture(pFrameDescriptor);
     
-    this->_pRayBuffer = this->_pDevice->newBuffer(width * height * sizeof(Ray), MTL::ResourceStorageModePrivate);
 
     this->_projectionMatrix = simd::float4x4{
         simd::float4{1 / tan(FOV), 0, 0, 0},
@@ -114,7 +92,6 @@ Renderer::~Renderer() {
     this->_pDepthNormalTextures[1]->release();
     this->_pMotionTexture->release();
     this->_pOutputTexture->release();
-    this->_pRayBuffer->release();
     this->_pGeometryMaterialBuffer->release();
     this->_pMaterialBuffer->release();
     this->_pScratchBuffer->release();
@@ -224,11 +201,10 @@ void Renderer::draw(MTK::View *pView) {
     //reset output texture
     MTL::ComputeCommandEncoder *pCEnc = pCmd->computeCommandEncoder();
     pCEnc->setAccelerationStructure(this->_pAccelerationStructure, 1);
-    pCEnc->setBuffer(this->_pRayBuffer, 0, 2);
-    pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 3);
-    pCEnc->setBuffer(this->_pMaterialBuffer, 0, 4);
-    pCEnc->setBytes(&this->_camera.position, sizeof(simd::float3), 5);
-    pCEnc->setBytes(&pvMatInv, sizeof(simd::float4x4), 6);
+    pCEnc->setBuffer(this->_pGeometryMaterialBuffer, 0, 2);
+    pCEnc->setBuffer(this->_pMaterialBuffer, 0, 3);
+    pCEnc->setBytes(&this->_camera.position, sizeof(simd::float3), 4);
+    pCEnc->setBytes(&pvMatInv, sizeof(simd::float4x4), 5);
     pCEnc->setTexture(this->_pDepthNormalTextures[0], 0);
     pCEnc->setTexture(this->_pMotionTexture, 1);
     pCEnc->setTexture(this->_pOutputTexture, 2);
