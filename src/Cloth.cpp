@@ -62,7 +62,7 @@ Cloth::Cloth(MTL::Device *pDevice, float size, uint32_t particleCount, float uni
     pIntersectFunctionDescriptor->setConstantValues(pFunctionConstants);
     pIntersectFunctionDescriptor->setName(NS::String::string("intersectIgnoreClothTriangles", NS::UTF8StringEncoding));
 
-    MTL::Library *pLibrary = pDevice->newLibrary(NS::String::string("Simulation.metallib", NS::UTF8StringEncoding), &err);
+    MTL::Library *pLibrary = pDevice->newDefaultLibrary();
     MTL::Function *pClothFunction = pLibrary->newFunction(NS::String::string("simulateClothKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
     MTL::Function *pIntersectFunction = pLibrary->newIntersectionFunction(pIntersectFunctionDescriptor, &err);
 

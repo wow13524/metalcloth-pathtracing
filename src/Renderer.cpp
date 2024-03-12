@@ -16,14 +16,13 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     pFunctionConstants->setConstantValue(&aspectRatio, MTL::DataTypeFloat, NS::UInteger(3));
     pFunctionConstants->setConstantValue(&FOV, MTL::DataTypeFloat, NS::UInteger(4));
 
-    MTL::Library *pDenoisingLibrary = this->_pDevice->newLibrary(NS::String::string("Denoising.metallib", NS::UTF8StringEncoding), &err);
-    MTL::Library *pShaderLibrary = this->_pDevice->newLibrary(NS::String::string("Shaders.metallib", NS::UTF8StringEncoding), &err);
-    MTL::Function *pResetFunction = pShaderLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
-    MTL::Function *pMotionFunction = pDenoisingLibrary->newFunction(NS::String::string("motionVectorKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
-    MTL::Function *pFinalizeFunction = pShaderLibrary->newFunction(NS::String::string("finalizeImageKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
-    MTL::Function *pSceneFunction = pShaderLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
-    MTL::Function *pVertexFunction = pShaderLibrary->newFunction(NS::String::string("vertexMain", NS::UTF8StringEncoding));
-    MTL::Function *pFragmentFunction = pShaderLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
+    MTL::Library *pLibrary = this->_pDevice->newDefaultLibrary();
+    MTL::Function *pResetFunction = pLibrary->newFunction(NS::String::string("resetImageKernel", NS::UTF8StringEncoding));
+    MTL::Function *pMotionFunction = pLibrary->newFunction(NS::String::string("motionVectorKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pFinalizeFunction = pLibrary->newFunction(NS::String::string("finalizeImageKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pSceneFunction = pLibrary->newFunction(NS::String::string("sampleSceneKernel", NS::UTF8StringEncoding), pFunctionConstants, &err);
+    MTL::Function *pVertexFunction = pLibrary->newFunction(NS::String::string("vertexMain", NS::UTF8StringEncoding));
+    MTL::Function *pFragmentFunction = pLibrary->newFunction(NS::String::string("fragmentMain", NS::UTF8StringEncoding));
 
     this->_pComputeMotionPipelineState = this->_pDevice->newComputePipelineState(pMotionFunction, &err);
 
@@ -92,8 +91,7 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
     this->loadScene(new TestScene(this->_pDevice));
 
     pFunctionConstants->release();
-    pDenoisingLibrary->release();
-    pShaderLibrary->release();
+    pLibrary->release();
     pMotionFunction->release();
     pFinalizeFunction->release();
     pSceneFunction->release();
