@@ -99,6 +99,12 @@ float2 samplePrevUv(PrimitiveData data, float2 uv) {
     return (1 - barycentricCoords.x - barycentricCoords.y) * data.v0PrevUV + barycentricCoords.x * data.v1PrevUV + barycentricCoords.y * data.v2PrevUV;
 }
 
+raytracing::ray generatePrimaryRay(float4x4 pvMatInv, float3 origin, float2 uv) {
+    float2 normalizedCoords = 2 * uv - 1;
+    float3 direction = normalize((pvMatInv * float4(normalizedCoords, 1, -1)).xyz);
+    return raytracing::ray{origin, direction, EPSILON};
+}
+
 kernel void sampleSceneKernel(
     uint2 position                                                      [[thread_position_in_grid]],
     constant uint32_t &rand                                             [[buffer(0)]],
@@ -113,48 +119,42 @@ kernel void sampleSceneKernel(
     texture2d<float, access::sample> hdri                               [[texture(3)]]
 ) {
     if (position.x >= width || position.y >= height) return;
+
+    raytracing::intersector<raytracing::triangle_data> primitiveIntersector;
+    raytracing::intersection_result<raytracing::triangle_data> intersection;
     float3 accumulatedColor = float3();
 
     for (uint i = 0; i < spp; i++) {
         float2 uv = (float2)position / float2(width, height);
-        float2 normalizedCoords = 2 * uv - 1;
-        float3 direction = normalize((pvMatInv * float4(normalizedCoords, 1, -1)).xyz);
-        raytracing::ray ray{origin, direction, EPSILON};
-        float3 color = 1;
-        
-        raytracing::intersector<raytracing::triangle_data> primitiveIntersector;
+        raytracing::ray ray = generatePrimaryRay(pvMatInv, origin, uv);
+        float3 rayColor = 1;
+        bool firstBounceReflect = false;
 
         for (uint j = 0; j < bounces; j++) {
-            raytracing::intersection_result<raytracing::triangle_data> intersection = primitiveIntersector.intersect(ray, accelerationStructure);
+            intersection = primitiveIntersector.intersect(ray, accelerationStructure);
 
             bool hit = intersection.type != raytracing::intersection_type::none;
-            Material mat = materials[geometryMaterials[intersection.geometry_id]];
+            constant Material &mat = materials[geometryMaterials[intersection.geometry_id]];
             PrimitiveData data = *(const device PrimitiveData*)intersection.primitive_data;
-
-            float3 barycentricCoords = float3(1 - intersection.triangle_barycentric_coord.x - intersection.triangle_barycentric_coord.y, intersection.triangle_barycentric_coord.x, intersection.triangle_barycentric_coord.y);
-            float2 currUv = uv;//bCoords.x * data.v1CurrUV + bCoords.y * data.v2CurrUV + (1 - bCoords.x - bCoords.y) * data.v0CurrUV;
-            float2 prevUv = samplePrevUv(data, uv);
-            float2 dUv = currUv - prevUv;
+            float3 barycentricCoords = float3(1 - intersection.triangle_barycentric_coord.x - intersection.triangle_barycentric_coord.y, intersection.triangle_barycentric_coord);
+            float2 dUv = uv - samplePrevUv(data, uv);
             float3 surfaceNormal = normalize(barycentricCoords.x * data.v0Normal + barycentricCoords.y * data.v1Normal + barycentricCoords.z * data.v2Normal);
-            float3 intersectedPosition = ray.origin + intersection.distance * ray.direction;
             surfaceNormal = faceforward(surfaceNormal, ray.direction, surfaceNormal);
 
             float4 ggxSample = importanceSampleGgxVndf(position, rand * (i + 1) * (j + 1), surfaceNormal, ray.direction, mat.roughness);
 
-            if (j == 0) {
-                depthNormal.write(float4(1 - 1 / (hit ? intersection.distance : INFINITY), hit ? surfaceNormal : float3(0)), position);
+            if (j == 0 || firstBounceReflect) {
+                firstBounceReflect = mat.roughness < 0.2;
+                depthNormal.write(float4(intersection.distance, hit ? surfaceNormal : float3(0)), position);
                 motion.write(float4(dUv, 0, 1), position);
-                if (length(dUv) < EPSILON && randUnif(position, rand * (i + 1) * (j + 1)) < 0.1) {
-                    motion.write(1, position);
-                }
             }
 
-            color *= hit ? mat.color : sampleHdri(hdri, ray.direction);
-            ray.origin = intersectedPosition;
+            rayColor *= hit ? mat.color : sampleHdri(hdri, ray.direction);
+            ray.origin += intersection.distance * ray.direction;
             ray.direction = ggxSample.xyz;
 
             if (!hit) {
-                accumulatedColor += color / spp;
+                accumulatedColor += rayColor / spp;
                 break;
             }
         }

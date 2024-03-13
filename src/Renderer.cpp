@@ -51,9 +51,6 @@ Renderer::Renderer(MTL::Device *pDevice, EventView *pView) {
         simd::float4{0, 0, 1, -1},
         simd::float4{0, 0, -2, 0}
     };
-
-    simd::float4 x = this->_projectionMatrix * simd::float4{0, 0, -10, 1};
-    printf("%f %f %f %f\n", x[0], x[1], x[2], x[3]);
     
     this->loadScene(new TestScene(this->_pDevice));
 
@@ -142,7 +139,7 @@ void Renderer::loadScene(Scene *pScene) {
 void Renderer::draw(MTK::View *pView) {
     auto thisFrame = std::chrono::system_clock::now();
     float dt = (thisFrame - this->_lastFrame).count() / 1e6;
-    //printf("FPS: %f\n", 1 / dt);
+    printf("FPS: %f\n", 1 / dt);
     this->_lastFrame = thisFrame;
 
     float cosPitch = cos(this->_camera.pitch), sinPitch = sin(this->_camera.pitch);
